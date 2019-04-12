@@ -3,6 +3,14 @@ uuid = "67c3e82c-17e5-11e9-3ac1-e574449ed583"
 authors = ["Dr. Zygmunt L. Szpak <zygmunt.szpak@gmail.com>"]
 version = "0.1.0"
 
+[deps]
+CImGui = "5d785b6c-b76f-510e-a07c-3070796c7e87"
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+CSyntax = "ea656a56-6ca6-5dda-bba5-7b6963a5f74c"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
