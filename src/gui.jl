@@ -45,7 +45,8 @@ function launch()
     time_selector = TimeSelector(Cfloat(100), Cfloat(1224), Cfloat(100), Cfloat(1224), 1, 1, 250.0:250.0:1000.0)
     ts = 0.0
     hz = 4.0
-    eda = Array{Union{Missing, Float64},1}(undef, 0)
+    #eda = Array{Union{Missing, Float64},1}(undef, 0)
+    eda_record = ElectrodermalData(0.0, 0, Vector{Float64}(undef, 0), Vector{Float64}(undef, 0))
     events = Dict{String,MarkedInterval}()
     event_name = "\0"^(10)
     while !GLFW.WindowShouldClose(window)
@@ -61,23 +62,28 @@ function launch()
                 populate_file_menu!(open_file_dialog)
                 CImGui.EndMenu()
             end
+            if CImGui.BeginMenu("Filters")
+                populate_filter_menu!()
+                CImGui.EndMenu()
+            end
             CImGui.EndMainMenuBar()
         end
 
         if isvisible(open_file_dialog)
             display_dialog!(open_file_dialog)
             if has_pending_action(open_file_dialog)
-                eda, ts, hz, time_selector = perform_dialog_action(open_file_dialog)
+                #eda, ts, hz, time_selector = perform_dialog_action(open_file_dialog)
+                eda_record, time_selector = perform_dialog_action(open_file_dialog)
                 consume_action!(open_file_dialog)
             end
         end
 
-        if !isempty(eda)
-            eda₁ =  Float32.(eda)
+        if !isempty(eda_record)
+            eda =  Float32.(get_eda(eda_record))
             CImGui.SetNextWindowPos((0, 0))
             CImGui.Begin("Main",C_NULL, CImGui.ImGuiWindowFlags_NoBringToFrontOnFocus)
-                visualize_data!(time_selector, events, event_name, eda₁)
-                viusalize_events!(events, event_name, time_selector, eda₁)
+                visualize_data!(time_selector, events, event_name, eda)
+                viusalize_events!(events, event_name, time_selector, eda)
             CImGui.End()
 
         end
@@ -108,9 +114,9 @@ function perform_dialog_action(dialog::OpenFileDialog)
     file_name = get_file(dialog, ConfirmedStatus())
     path = joinpath(directory, file_name)
     data = CSV.File(path, header=["EDA"]) |> DataFrame
-    eda = data[:EDA]
+    eda = Float64.(data[:EDA])
     ts = eda[1]
-    hz = eda[2]
+    hz = round(Int,eda[2])
     # It looks like the first EDA measurement will always be zero.
     # We replace zero with a genuine EDA measurement so that
     # the zero doesn't adversly affect our computation of the actual
@@ -119,6 +125,8 @@ function perform_dialog_action(dialog::OpenFileDialog)
     eda[3] = eda[4]
     eda = eda[3:end]
 
+    eda_record = ElectrodermalData(ts, hz, eda, eda)
+
     timestamps_in_ms = range(250; step = 1000 / hz, length = length(eda))
     # TODO revisit the interval story here...
     spacing = Cfloat(40)
@@ -126,30 +134,58 @@ function perform_dialog_action(dialog::OpenFileDialog)
     @show length(eda)
     time_selector = TimeSelector(spacing, width, Cfloat(250), Cfloat(640), 1, length(eda), timestamps_in_ms)
 
-    eda, ts, hz, time_selector
+    #eda, ts, hz, time_selector
+    eda_record, time_selector
 end
 
 function populate_file_menu!(dialog::AbstractDialog)
-    if CImGui.MenuItem("Open", "Ctrl+O")
-        set_visibility!(dialog, true)
+    if CImGui.BeginMenu("Import")
+        if CImGui.BeginMenu("Empatica E4")
+            if CImGui.MenuItem("EDA.csv")
+                set_visibility!(dialog, true)
+            end
+            if CImGui.MenuItem("TEMP.csv")
+            end
+            if CImGui.MenuItem("tags.csv")
+            end
+            CImGui.EndMenu()
+        end
+       CImGui.EndMenu()
+    end
+    # if CImGui.MenuItem("Open", "Ctrl+O")
+    #     set_visibility!(dialog, true)
+    # end
+end
+
+function populate_filter_menu!()
+    @cstatic enabled=true begin
+        @c CImGui.MenuItem("Enabled", "", &enabled)
     end
 end
 
 function tag_event!(events, event_name₁, mi::MarkedInterval)
-    @show event_name₁
     events[event_name₁] = mi
+end
+
+function remove_event!(events, event_name)
+    if haskey(events, event_name)
+        delete!(events, event_name)
+    end
 end
 
 function handle_event_annotation!(events,  event_name, time_selector, eda::AbstractArray)
     buffer = Cstring(pointer(event_name))
-    CImGui.InputText("event description", buffer, length(event_name))
+    CImGui.PushItemWidth(100)
+    CImGui.InputText("###event description", buffer, length(event_name))
+    CImGui.PopItemWidth()
     CImGui.SameLine()
     color = Cfloat[0/255, 144/255, 0/255, 250/255]
     # Tag on event name
-    CImGui.ColorButton("MyColor##3b", ImVec4(color...))
+    CImGui.Button("Create Event") && tag_event!(events, event_name[1:end], MarkedInterval(event_name[1:end], copy(time_selector)))
     CImGui.SameLine()
-    CImGui.Button("Tag Event") && tag_event!(events, event_name[1:end], MarkedInterval(event_name[1:end], copy(time_selector)))
-    CImGui.SameLine()
+    CImGui.Button("Remove Event") && remove_event!(events, event_name[1:end])
+    #@show event_name
+    #CImGui.Button("Select Event..") && CImGui.OpenPopup("my_select_popup")
 end
 
 function viusalize_events!(events, event_name, time_selector, eda)
@@ -174,13 +210,83 @@ function viusalize_events!(events, event_name, time_selector, eda)
     y = pos.y
     width = CImGui.GetWindowContentRegionWidth() - padx₀
     #@show x,y,width
+    # Allow the user to type a name for an event and respond to the
+    # "Create Event" button press.
     handle_event_annotation!(events, event_name, time_selector, eda)
-    draw_events(events, x, y-108, width, overview_plot_height)
+    # Draw a rectangle and label on the eda overlay to demarcate the created event.
+    demarcate_events(events, x, y-108, width, overview_plot_height)
+    # Respond to mouse events on the demarcated region.
+    handle_event_interaction!(time_selector, event_name, events, x, y-108, overview_plot_height)
+    #draw_events(events, x, y-108, width, overview_plot_height)
 
     #draw_list = CImGui.GetWindowDrawList()
     #CImGui.AddRectFilled(draw_list, ImVec2(20, 20), ImVec2(100, 100),  CImGui.ColorConvertFloat4ToU32(ImVec4(Cfloat[0.0,0.0,0.0,1.0]...)));
     #CImGui.EndChild()
 end
+
+function demarcate_events(events, x, y, width, height)
+    draw_list = CImGui.GetWindowDrawList()
+    for (key, value) in events
+           time_interval = get_time_interval(value)
+           CImGui.AddRectFilled(draw_list, ImVec2(get_x₀(time_interval), y), ImVec2(get_x₁(time_interval),  y + height), CImGui.ColorConvertFloat4ToU32(ImVec4(Cfloat[1.0,0.0,0.99,0.2]...)));
+           first_nul = findfirst(isequal('\0'), key)
+           str = key[1:first_nul-1]
+           xₜ = get_x₀(time_interval) + 5
+           yₜ =  y + 5
+           CImGui.AddText(draw_list,ImVec2(xₜ, yₜ), CImGui.ColorConvertFloat4ToU32(ImVec4(Cfloat[0.4,0.4,0.4, 1.0]...)) , str)
+    end
+end
+
+function handle_event_interaction!(time_interval, event_name, events,  x, y, height)
+
+    for (key, value) in events
+           time_intervalₙ = get_time_interval(value)
+           CImGui.SetCursorPos(ImVec2(get_x₀(time_intervalₙ), y))
+           width = get_x₁(time_intervalₙ) - get_x₀(time_intervalₙ)
+
+           first_nul = findfirst(isequal('\0'), key)
+           str = key[1:first_nul-1]
+           # The invisible button will be used to detect mouse hovering events.
+           CImGui.InvisibleButton("###$str", ImVec2(width,height))
+           δms = get_t₁_ms(time_intervalₙ) - get_t₀_ms(time_intervalₙ)
+           elapsed_time = Dates.canonicalize(Dates.CompoundPeriod(Dates.Millisecond(δms)))
+           CImGui.IsItemHovered() && CImGui.SetTooltip(string(elapsed_time))
+           # As well as mouse click events.
+           if CImGui.IsItemClicked()
+               set_x₀!(time_interval, get_x₀(time_intervalₙ))
+               set_x₁!(time_interval, get_x₁(time_intervalₙ))
+               # TODO Look into this once we update CImGui to sidestep pointer issue in strings.
+               #event_name = key[1:end]
+           end
+    end
+    # It will also be used to detect click events and to set the main
+    # time_interval widget equal to the scope of the time_interval associated
+    # with this particular event.
+end
+
+# function draw_events(events, x, y, width, height)
+#     draw_list = CImGui.GetWindowDrawList()
+#
+#     for (key, value) in events
+#            time_interval = get_time_interval(value)
+#            CImGui.AddRectFilled(draw_list, ImVec2(get_x₀(time_interval), y), ImVec2(get_x₁(time_interval),  y + height), CImGui.ColorConvertFloat4ToU32(ImVec4(Cfloat[1.0,0.0,0.99,0.2]...)));
+#            CImGui.SetCursorPos(ImVec2(get_x₀(time_interval), y))
+#            w = get_x₁(time_interval) - get_x₀(time_interval)
+#            first_nul = findfirst(isequal('\0'), key)
+#            str = key[1:first_nul-1]
+#            xₜ = get_x₀(time_interval) + 5
+#            yₜ =  y + 5
+#            CImGui.AddText(draw_list,ImVec2(xₜ, yₜ), CImGui.ColorConvertFloat4ToU32(ImVec4(Cfloat[0.4,0.4,0.4, 1.0]...)) , str)
+#            # The invisible button will be used to detect mouse hovering events.
+#            CImGui.InvisibleButton("###$str", ImVec2(w,height))
+#            δms = get_t₁_ms(time_interval ) - get_t₀_ms(time_interval )
+#            elapsed_time = Dates.canonicalize(Dates.CompoundPeriod(Dates.Millisecond(δms)))
+#            CImGui.IsItemHovered() && CImGui.SetTooltip(string(elapsed_time))
+#            # It will also be used to detect click events and to set the main
+#            # time_interval widget equal to the scope of the time_interval associated
+#            # with this particular event.
+#      end
+# end
 
 function visualize_data!(time_selector, events, event_name, eda::AbstractArray)
         # We indent all of the plots and widgets to leave space for the
@@ -262,8 +368,6 @@ function draw_zoomed_eda!(time_selector, eda::AbstractArray, x::Cfloat ,y::Cfloa
     δms = get_t₁_ms(time_selector) - get_t₀_ms(time_selector)
     elapsed_time = Dates.canonicalize(Dates.CompoundPeriod(Dates.Millisecond(δms)))
     begin
-
-
         CImGui.PlotLines("###microsiemens", eda′ , length(eda′), 0 , string(elapsed_time), minimum(eda′), maximum(eda′), (width, height))
         # Visual guide to make it easier to determine the eda at a particular point in time.
         draw_horizontal_bars(x, y, width, height, y_tick_spacing, CImGui.ColorConvertFloat4ToU32(ImVec4(Cfloat[1.0,0.0,0.4,0.2]...)))
@@ -336,281 +440,11 @@ function map_time_selector_to_window!(time_selector, x, width)
     set_x₁!(time_selector,  x₁ >= i₁ ? i₁ : x₁)
 end
 
-function draw_events(events, x, y, width, height)
-    draw_list = CImGui.GetWindowDrawList()
-
-    for (key, value) in events
-           time_interval = get_time_interval(value)
-           CImGui.AddRectFilled(draw_list, ImVec2(get_x₀(time_interval), y), ImVec2(get_x₁(time_interval),  y + height), CImGui.ColorConvertFloat4ToU32(ImVec4(Cfloat[1.0,0.0,0.99,0.2]...)));
-           CImGui.SetCursorPos(ImVec2(get_x₀(time_interval), y))
-           w = get_x₁(time_interval) - get_x₀(time_interval)
-           first_nul = findfirst(isequal('\0'), key)
-           str = key[1:first_nul-1]
-           # xₜ = (get_x₁(time_interval) + get_x₀(time_interval)) / 2
-           # yₜ =  y + height * 0.2
-           xₜ = get_x₀(time_interval) + 5
-           yₜ =  y + 5
-           CImGui.AddText(draw_list,ImVec2(xₜ, yₜ), CImGui.ColorConvertFloat4ToU32(ImVec4(Cfloat[0.4,0.4,0.4, 1.0]...)) , str)
-           # The invisible button will be used to detect mouse hovering events.
-           CImGui.InvisibleButton("###$str", ImVec2(w,height))
-           δms = get_t₁_ms(time_interval ) - get_t₀_ms(time_interval )
-           elapsed_time = Dates.canonicalize(Dates.CompoundPeriod(Dates.Millisecond(δms)))
-           CImGui.IsItemHovered() && CImGui.SetTooltip(string(elapsed_time))
-
-
-     end
-end
 
 function draw_event_overlay()
 
 end
-# function draw_eda!(time_selector, eda::AbstractArray, hz)
-#     leftpad = 40
-#
-#     CImGui.SetNextWindowPos((0, 0))
-#     CImGui.SetNextWindowSize((640, 480), CImGui.ImGuiCond_FirstUseEver)
-#     #CImGui.SetNextWindowSize(0.0)
-#     CImGui.Begin("Main",C_NULL, CImGui.ImGuiWindowFlags_NoBringToFrontOnFocus)
-#
-#     col = Cfloat[1.0,0.0,0.4,0.2]
-#     black =  Cfloat[0.0,0.0,0.0,1.0]
-#     pad₁ = 0
-#     pad₂ = 0
-#
-#     CImGui.SetCursorPosX(Cfloat(leftpad))
-#
-#     p = CImGui.GetCursorPos()
-#     #@show p
-#
-#
-#     col32 = CImGui.ColorConvertFloat4ToU32(ImVec4(col...))
-#     min_val = minimum(eda)
-#     max_val = maximum(eda)
-#     duration_in_seconds = length(eda) / hz
-#     width = round(CImGui.GetWindowWidth())
-#     #@show width
-#
-#     @show CImGui.GetWindowContentRegionWidth()
-#     #@show CImGui.GetWindowContentRegionMax()
-#
-#     width₁ = CImGui.GetWindowContentRegionWidth() - leftpad
-#
-#     # This defines the start and end x coordinates for drawing the complete timeline.
-#     set_interval₀!(time_selector, p.x)
-#     set_interval₁!(time_selector, p.x + width₁)
-#     #set_x₀!(time_selector, p.x)
-#     #set_x₁!(time_selector, p.x + width₁)
-#
-#     # The user can drag a region-of-interest within this whole interval.
-#     t₀ = get_t₀(time_selector)
-#     t₁ = get_t₁(time_selector)
-#     timestamps_in_ms = get_timestamps(time_selector)
-#     height = Cfloat(200)
-#     @show t₀, t₁
-#     #timestamps_in_ms = range(250; step = 1000 / hz, length = length(eda))
-#     eda′ = eda[t₀:t₁]
-#     #eda′ = eda
-#     #@show t₀, t₁
-#     #@show length(eda′)
-#     ts = time_selector
-#     timestamps = get_timestamps(ts)
-#     x₀ = get_x₀(ts)
-#     x₁ = get_x₁(ts)
-#     i₀ = get_interval₀(ts)
-#     i₁ = get_interval₁(ts)
-#     t₀_ms = round(stretch_linearly(x₀ , i₀,  i₁, first(timestamps), last(timestamps)))
-#     t₁_ms = round(stretch_linearly(x₁ , i₀,  i₁, first(timestamps), last(timestamps)))
-#     # TODO Make sure x₀ is never less than i₀ and same for
-#     t₀ = Int.(div(t₀_ms, step(timestamps)))
-#     t₁ = Int.(div(t₁_ms, step(timestamps)))
-#     @show x₀, x₁, i₀, i₁, t₀_ms, t₀, t₁
-#     begin
-#         #CImGui.PlotLines("###microsiemens", eda, length(eda), 0 , "EDA (microsiemens)", min_val, max_val, (width, height))
-#         CImGui.PlotLines("###microsiemens", eda′ , length(eda′), 0 , "EDA (microsiemens)", minimum(eda′), maximum(eda′), (width₁, height))
-#         draw_list = CImGui.GetWindowDrawList()
-#         x::Cfloat = p.x
-#         y::Cfloat = p.y
-#         spacing = 40
-#         # Draws (almost transparent) horizontal bars
-#         for yₙ in range(y, step = 40, stop = y + height - 40)
-#             CImGui.AddRectFilled(draw_list, ImVec2(x, yₙ), ImVec2(x + width₁ , yₙ + 20), col32);
-#         end
-#         # # Draw EDA values as reference
-#         # for yₙ in range(y, step = 40, stop = y + height - 40)
-#         #     eda_reference = round(stretch_linearly(yₙ, y,  y + height, max_val, min_val); digits = 3)
-#         #     CImGui.AddText(draw_list, ImVec2(x, yₙ), CImGui.ColorConvertFloat4ToU32(ImVec4(black...)), "$eda_reference",);
-#         # end
-#         # Draw EDA values as reference
-#         for yₙ in range(y + height, step = -20, stop = y)
-#             eda_reference = round(stretch_linearly(yₙ, y + height,  y, minimum(eda′), maximum(eda′)); digits = 3)
-#             CImGui.AddText(draw_list, ImVec2(x, yₙ - 12), CImGui.ColorConvertFloat4ToU32(ImVec4(black...)), "$eda_reference",);
-#         end
-#         # Draw tick marks on y-axis
-#         #CImGui.AddLine(draw_list, ImVec2(x, y), ImVec2(x, y + height), CImGui.ColorConvertFloat4ToU32(ImVec4(black...)), Cfloat(1));
-#     end
-#     # Draw tick marks on x-axis and write time stamps
-#     begin
-#         draw_list = CImGui.GetWindowDrawList()
-#         col = Cfloat[0.0,0.0,0.0,1.0]
-#         CImGui.SetCursorPosX(Cfloat(leftpad))
-#         p = CImGui.GetCursorPos()
-#
-#         x = p.x
-#         y = p.y + 25.0
-#         width = round(CImGui.GetWindowWidth() - 1)
-#         CImGui.AddLine(draw_list, ImVec2(x, y), ImVec2(x + width₁, y), CImGui.ColorConvertFloat4ToU32(ImVec4(col...)), Cfloat(1));
-#         for xₙ in range(x, step = 120, stop = x + width₁)
-#             # Tick mark
-#             CImGui.AddLine(draw_list, ImVec2(xₙ, y), ImVec2(xₙ, y + 10), CImGui.ColorConvertFloat4ToU32(ImVec4(col...)), Cfloat(1));
-#             # Time stamp
-#             #timestamp_in_seconds = round(stretch_linearly(xₙ, x,  x + width, 0, duration_in_seconds))
-#             #timestamp = Dates.epochms2datetime(Dates.value(Millisecond(Second(timestamp_in_seconds))))
-#             #timestamp = Dates.epochms2datetime(Dates.value(Millisecond(round(stretch_linearly(xₙ, x,  x + width, first(timestamps_in_ms), last(timestamps_in_ms))))))
-#             timestamp = Dates.epochms2datetime(Dates.value(Millisecond(round(stretch_linearly(xₙ, x,  x + width₁, t₀_ms, t₁_ms )))))
-#             time_text = Dates.format(timestamp , dateformat"HH:MM:SS")
-#             CImGui.AddText(draw_list, ImVec2(xₙ-25, y+15), CImGui.ColorConvertFloat4ToU32(ImVec4(col...)), "$time_text",);
-#         end
-#     end
-#
-#     #p = CImGui.SetCursorPos(ImVec2(p.x, p.y + 35.0))
-#     # Draw EDA overview with time stamps and an time_stamps overlay.
-#     begin
-#         p = CImGui.GetCursorPos()
-#         CImGui.SetCursorPosX(Cfloat(leftpad))
-#         CImGui.SetCursorPosY(p.y + Cfloat(65))
-#         p = CImGui.GetCursorPos()
-#         width₁ = CImGui.GetWindowContentRegionWidth() - leftpad
-#
-#         CImGui.PlotLines("###eda_overview", eda, length(eda), 0 , "", min_val, max_val, (width₁, Cfloat(50)))
-#         draw_list = CImGui.GetWindowDrawList()
-#         col = Cfloat[0.0,0.0,0.0,1.0]
-#         transparent_blue = Cfloat[0.0,0.0,0.99,0.2]
-#         #p = CImGui.GetCursorScreenPos()
-#         CImGui.SetCursorPosX(Cfloat(leftpad))
-#         p = CImGui.GetCursorPos()
-#         x = p.x
-#         y = p.y + 25.0
-#         width = round(CImGui.GetWindowWidth() - 1)
-#         CImGui.AddLine(draw_list, ImVec2(x, y), ImVec2(x + width₁, y), CImGui.ColorConvertFloat4ToU32(ImVec4(col...)), Cfloat(1));
-#         for xₙ in range(x, step = 120, stop = x + width₁)
-#             # Tick mark
-#             CImGui.AddLine(draw_list, ImVec2(xₙ, y), ImVec2(xₙ, y + 10), CImGui.ColorConvertFloat4ToU32(ImVec4(col...)), Cfloat(1));
-#             # Time stamp
-#             timestamp_in_seconds = round(stretch_linearly(xₙ, x,  x + width₁, 0, duration_in_seconds))
-#             timestamp = Dates.epochms2datetime(Dates.value(Millisecond(Second(timestamp_in_seconds))))
-#             time_text = Dates.format(timestamp , dateformat"HH:MM:SS")
-#             CImGui.AddText(draw_list, ImVec2(xₙ-25, y+15), CImGui.ColorConvertFloat4ToU32(ImVec4(col...)), "$time_text",);
-#         end
-#         #@show x
-#         #CImGui.Button("Drag Me", ImVec2(1920, 60))
-#         CImGui.InvisibleButton("Drag Me", ImVec2(1920, 60))
-#         CImGui.AddRectFilled(draw_list, ImVec2(get_x₀(time_selector), y), ImVec2(get_x₁(time_selector),  y + 30), CImGui.ColorConvertFloat4ToU32(ImVec4(transparent_blue...)));
-#         # Change cursor to indicate that the user can drag the rectangle when they
-#         # hover the mouse over the endpoints of the rectangle.
-#         io = CImGui.GetIO()
-#
-#
-#         if CImGui.IsItemHovered()
-#             #mousepos = CImGui.GetMousePos()
-#             mousepos = io.MousePos
-#             #@show mousepos.x, get_x₁(time_selector)
-#             # Relax threshold when dragging to make things smoother
-#             if (abs(get_x₀(time_selector) - mousepos.x) <=  25)
-#                 CImGui.SetMouseCursor(CImGui.ImGuiMouseCursor_ResizeEW)
-#                 if CImGui.IsItemActive()
-#                     set_x₀!(time_selector, io.MousePos.x)
-#                 end
-#             end
-#             if (abs(get_x₁(time_selector) - mousepos.x) <= 25)
-#                 CImGui.SetMouseCursor(CImGui.ImGuiMouseCursor_ResizeEW)
-#                 if CImGui.IsItemActive()
-#                     set_x₁!(time_selector, io.MousePos.x)
-#                 end
-#             end
-#             #set_x₀!(time_selector, min(get_x₀(time_selector), get_x₁(time_selector)))
-#             #set_x₁!(time_selector, max(get_x₀(time_selector), get_x₁(time_selector)))
-#         end
-#     end
-#
-#
-#     # CImGui.PushStyleColor(CImGui.ImGuiCol_WindowBg , Cfloat[0.0,0.0,7.0,0.4])
-#     # CImGui.Begin("ROI", p_open, window_flags)
-#     #
-#     # CImGui.End()
-#     # CImGui.PopStyleColor()
-#
-#     CImGui.End()
-# end
 
 function stretch_linearly(x, A, B, a, b)
     (x-A) * ((b-a) / (B-A)) + a
 end#
-
-
-
-# function display_file_dialog(should_show_dialog::Bool, path::String)
-#     if should_show_dialog
-#         @c CImGui.Begin("Open Dialog", &should_show_dialog)
-#         path_directories = splitpath(path)
-#         selected_directory = Cint(length(path_directories))
-#         # Draw a button for each directory that constitutes the current path.
-#         for (index, d) in enumerate(path_directories)
-#             CImGui.Button(d) && (selected_directory = Cint(index);)
-#             CImGui.SameLine()
-#         end
-#         # If a button is clicked then we truncate the path up to and including the directory that was clicked.
-#         path = selected_directory == 1 ? joinpath(first(path_directories)) : joinpath(path_directories[1:selected_directory]...)
-#         CImGui.NewLine()
-#         CImGui.BeginChild("Directory and File Listing", CImGui.ImVec2(CImGui.GetWindowWidth() * 0.98, -CImGui.GetWindowHeight() * 0.2))
-#         CImGui.Columns(1)
-#         # Make a list of directories that are visibile from the current directory.
-#         visible_directories = filter(p->isdir(joinpath(path, p)), readdir(path))
-#         for (n, folder_name) in enumerate(visible_directories)
-#             # When the user clicks on a directory then change directory by appending it to the current path.
-#             if CImGui.Selectable("[Dir] " * "$folder_name")
-#                 @info "Trigger Item $n | find me here: $(@__FILE__) at line $(@__LINE__)"
-#                 path = joinpath(path, folder_name)
-#             end
-#         end
-#         # Make a list of files that are visible in the current directory.
-#         visible_files = filter(p->isfile(joinpath(path, p)), readdir(path))
-#         selected_file = Cint(0)
-#         for (n, file_name) in enumerate(visible_files)
-#             if CImGui.Selectable("[File] " * "$file_name")
-#                 @info "Trigger Item $n | find me here: $(@__FILE__) at line $(@__LINE__)"
-#             end
-#         end
-#         CImGui.EndChild()
-#         CImGui.Text("File Name:")
-#         CImGui.SameLine()
-#         @show
-#         #file_name₀ =  "\0"*"\0"^(255)
-#         # Reserve 255 characters to receive input text. In the extreme
-#         # case where a file is selected that exceeds 255 characters we will append
-#         # the filename with a C_NULL character.
-#         N = selected_file == 0 ? 255 : max(255 - length(visible_files[selected_file]), 1)
-#         file_name₀ =  selected_file == 0 ?  "\0"*"\0"^(N)  : visible_files[selected_file]*"\0"^(N)
-#         buf = Cstring(pointer(file_name₀))
-#         CImGui.InputText("",buf, length(file_name₀))
-#         #@show file_name₀
-#         @show selected_file
-#
-#         #@cstatic  str0="Hello, world! " * "\0"^115 begin
-#         # str0="Hello, world! "
-#         # @show typeof(str0), str0
-#         # ImGui.InputText("input text", str0, length(str0))
-#
-#
-#         #CImGui.InputText("input text", str0, length(str0))
-#         # Print the name of the selected file in the textbox.
-#         CImGui.Button("Cancel") && (should_show_dialog = false;)
-#         CImGui.SameLine()
-#         CImGui.Button("Open") && (should_show_dialog = false;)
-#
-#         #@show current_directory
-#         #CImGui.Button("Close Me") && (should_show_dialog = false;)
-#         CImGui.End()
-#     end
-#
-#     should_show_dialog, path
-# end

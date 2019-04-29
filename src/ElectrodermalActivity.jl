@@ -13,6 +13,7 @@ using DataFrames
 using CSV
 using Dates
 
+include("electrodermal.jl")
 include("filedialog.jl")
 include("time_selector.jl")
 include("event.jl")
