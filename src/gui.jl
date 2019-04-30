@@ -271,7 +271,7 @@ function viusalize_events!(events, event_name, time_selector, eda, start_timesta
 
     # We indent all of the plots and widgets to leave space for the
     # EDA values on the y-axis of zoomed eda plot.
-    padx₀ = Cfloat(40)
+    padx₀ = Cfloat(60)
     # Determines the gap between subsequent tick on the y-axis.
     y_tick_spacing = 40
     # Determines the gap between subsequent ticks on the x-axis (the timeline).
@@ -387,7 +387,7 @@ end
 function visualize_data!(time_selector, events, event_name, eda::AbstractArray)
         # We indent all of the plots and widgets to leave space for the
         # EDA values on the y-axis of zoomed eda plot.
-        padx₀ = Cfloat(40)
+        padx₀ = Cfloat(60)
         # Determines the gap between subsequent tick on the y-axis.
         y_tick_spacing = 40
         # Determines the gap between subsequent ticks on the x-axis (the timeline).
@@ -514,12 +514,18 @@ function draw_horizontal_bars(x, y, width, height, spacing, col32)
 end
 
 function draw_eda_ordinate(eda, x, y, width, height, spacing, col32)
-    yoffset = 12
+    yoffset = 6
+    xoffset = 50
+    tick_length = 10
+    tick_thickness = Cfloat(1)
     draw_list = CImGui.GetWindowDrawList()
     # Draw EDA values as references on the y-axis.
+    CImGui.AddLine(draw_list, ImVec2(x, y), ImVec2(x, y + height), col32, tick_thickness);
     for yₙ in range(y + height, step = -div(spacing, 2), stop = y)
+        # This line represents the tick mark.
+        CImGui.AddLine(draw_list, ImVec2(x, yₙ), ImVec2(x - tick_length, yₙ), col32, tick_thickness);
         eda_reference = round(stretch_linearly(yₙ, y + height,  y, minimum(eda), maximum(eda)); digits = 3)
-        CImGui.AddText(draw_list, ImVec2(x, yₙ - yoffset), col32, "$eda_reference",);
+        CImGui.AddText(draw_list, ImVec2(x - xoffset, yₙ - yoffset), col32, "$eda_reference",);
     end
 end
 
