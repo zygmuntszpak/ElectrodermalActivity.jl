@@ -14,8 +14,10 @@ using CSV
 using Dates
 using DSP
 
+include("vendors.jl")
 include("electrodermal.jl")
 include("filedialog.jl")
+include("empatica_dialogs.jl")
 include("time_selector.jl")
 include("event.jl")
 include("gui.jl")

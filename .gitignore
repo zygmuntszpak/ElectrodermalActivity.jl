@@ -3,3 +3,11 @@
 *.jl.cov
 *.jl.*.cov
 *.jl.mem
+ACC.csv
+BVP.csv
+EDA.csv
+EDA2.csv
+HR.csv
+IBI.csv
+tags.csv
+TEMP.csv
