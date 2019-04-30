@@ -48,7 +48,7 @@ function launch()
     #eda = Array{Union{Missing, Float64},1}(undef, 0)
     eda_record = ElectrodermalData(0.0, 0, Vector{Float64}(undef, 0), Vector{Float64}(undef, 0))
     events = Dict{String,MarkedInterval}()
-    event_name = "\0"^(10)
+    event_name = "\0"^(15)
     while !GLFW.WindowShouldClose(window)
 
         GLFW.PollEvents()
@@ -63,7 +63,7 @@ function launch()
                 CImGui.EndMenu()
             end
             if CImGui.BeginMenu("Filters")
-                populate_filter_menu!()
+                populate_filter_menu!(eda_record)
                 CImGui.EndMenu()
             end
             CImGui.EndMainMenuBar()
@@ -72,7 +72,6 @@ function launch()
         if isvisible(open_file_dialog)
             display_dialog!(open_file_dialog)
             if has_pending_action(open_file_dialog)
-                #eda, ts, hz, time_selector = perform_dialog_action(open_file_dialog)
                 eda_record, time_selector = perform_dialog_action(open_file_dialog)
                 consume_action!(open_file_dialog)
             end
@@ -134,7 +133,6 @@ function perform_dialog_action(dialog::OpenFileDialog)
     @show length(eda)
     time_selector = TimeSelector(spacing, width, Cfloat(250), Cfloat(640), 1, length(eda), timestamps_in_ms)
 
-    #eda, ts, hz, time_selector
     eda_record, time_selector
 end
 
@@ -152,14 +150,25 @@ function populate_file_menu!(dialog::AbstractDialog)
         end
        CImGui.EndMenu()
     end
-    # if CImGui.MenuItem("Open", "Ctrl+O")
-    #     set_visibility!(dialog, true)
-    # end
 end
 
-function populate_filter_menu!()
-    @cstatic enabled=true begin
-        @c CImGui.MenuItem("Enabled", "", &enabled)
+# Perhaps this should fire some action that needs to be consumed so that
+# we don't have to pass eda_data to a function that is primarily responsible
+# for drawing GUI elements. TODO refactor this.
+function populate_filter_menu!(eda_data::ElectrodermalData)
+    @cstatic enabled=false begin
+        if @c CImGui.MenuItem("Lowpass Filter (1Hz)", "", &enabled)
+            @show "triggered", enabled
+            eda₀ = get_unprocessed_eda(eda_data)
+            if enabled
+                response_type = Lowpass(1; fs = get_sampling_frequency(eda_data))
+                design_method = Butterworth(2)
+                eda₁ = filt(digitalfilter(response_type, design_method), eda₀)
+                set_eda!(eda_data, eda₁)
+            else
+                set_eda!(eda_data, eda₀)
+            end
+        end
     end
 end
 

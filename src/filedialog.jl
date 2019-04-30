@@ -111,7 +111,6 @@ end
 
 function deal_with_directory_selection!(dialog::AbstractDialog)
     path = get_directory(dialog, UnconfirmedStatus())
-    #visible_directories = filter(p->isdir(joinpath(path, p)), readdir(path))
     visible_directories = filter(p->is_readable_dir(joinpath(path, p)), readdir(path))
     for (n, folder_name) in enumerate(visible_directories)
         # When the user clicks on a directory then change directory by appending the selected directory to the current path.
@@ -123,7 +122,7 @@ function deal_with_directory_selection!(dialog::AbstractDialog)
 end
 
 # The isdir function might not have permissions to query certan folders and
-# will thus throw an ERROR: IOError: stat: permission denied (EACCES)
+# will thus throw an ERROR: "IOError: stat: permission denied (EACCES)"
 function is_readable_dir(path)
     flag = false
     try
@@ -136,7 +135,6 @@ end
 
 function deal_with_file_selection!(dialog::AbstractDialog)
     path = get_directory(dialog, UnconfirmedStatus())
-    #visible_files = filter(p->isfile(joinpath(path, p)), readdir(path))
     visible_files = filter(p->is_readable_file(joinpath(path, p)), readdir(path))
     selected_file = Cint(0)
     for (n, file_name) in enumerate(visible_files)
@@ -147,7 +145,7 @@ function deal_with_file_selection!(dialog::AbstractDialog)
 end
 
 # The isfile function might not have permissions to query certan files and
-# will thus throw an ERROR: IOError: stat: permission denied (EACCES)
+# will thus throw an ERROR: "IOError: stat: permission denied (EACCES)"
 function is_readable_file(path)
     flag = false
     try

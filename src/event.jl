@@ -8,7 +8,6 @@ function set_label!(i::MarkedInterval, str::String)
     i.label = str
 end
 
-
 function get_label(i::MarkedInterval)
     i.label
 end

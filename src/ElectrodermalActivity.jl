@@ -12,6 +12,7 @@ using Printf
 using DataFrames
 using CSV
 using Dates
+using DSP
 
 include("electrodermal.jl")
 include("filedialog.jl")
