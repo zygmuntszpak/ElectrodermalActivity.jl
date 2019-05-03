@@ -71,8 +71,9 @@ function display_dialog!(dialog::OpenFileDialog)
     @c CImGui.Begin("Open File", &dialog.visible)
         display_path!(dialog)
         display_directory_file_listing!(dialog)
-        display_unconfirmed_file(dialog)
+        handle_unconfirmed_file!(dialog)
         deal_with_file_confirmation!(dialog)
+        handle_file_error_messaging()
     CImGui.End()
 end
 
@@ -99,15 +100,23 @@ function display_directory_file_listing!(dialog::AbstractDialog)
     CImGui.EndChild()
 end
 
-function display_unconfirmed_file(dialog::AbstractDialog)
+function handle_unconfirmed_file!(dialog::AbstractDialog)
     CImGui.Text("File Name:")
     CImGui.SameLine()
     file_name₀ = get_file(dialog, UnconfirmedStatus())
     file_name₁ = file_name₀*"\0"^(1)
-    buffer = Cstring(pointer(file_name₁))
-    CImGui.InputText("",buffer, length(file_name₁),  CImGui.ImGuiInputTextFlags_ReadOnly)
+    # Allow up to 255 characters for the filename.
+    pad_nul = max(0, 255 - length(file_name₁) + 1)
+    buffer = file_name₁*"\0"^(pad_nul)
+    CImGui.InputText("",buffer, length(buffer))
+    file_name₂ = extract_string(buffer)
+    set_file!(dialog, file_name₂, UnconfirmedStatus())
 end
 
+function extract_string(buffer)
+    first_nul = findfirst(isequal('\0'), buffer) - 1
+    buffer[1:first_nul]
+end
 
 function deal_with_directory_selection!(dialog::AbstractDialog)
     path = get_directory(dialog, UnconfirmedStatus())
@@ -135,7 +144,7 @@ end
 
 function deal_with_file_selection!(dialog::AbstractDialog)
     path = get_directory(dialog, UnconfirmedStatus())
-    visible_files = filter(p->is_readable_file(joinpath(path, p)), readdir(path))
+    visible_files = filter(p->is_queryable_file(joinpath(path, p)), readdir(path))
     selected_file = Cint(0)
     for (n, file_name) in enumerate(visible_files)
         if CImGui.Selectable("[File] " * "$file_name")
@@ -146,7 +155,7 @@ end
 
 # The isfile function might not have permissions to query certan files and
 # will thus throw an ERROR: "IOError: stat: permission denied (EACCES)"
-function is_readable_file(path)
+function is_queryable_file(path)
     flag = false
     try
         flag = isfile(path)
@@ -167,8 +176,111 @@ function deal_with_cancellation!(dialog::AbstractDialog)
 end
 
 function deal_with_confirmation!(dialog::AbstractDialog)
-    set_visibility!(dialog, false)
-    set_directory!(dialog, get_directory(dialog, UnconfirmedStatus()), ConfirmedStatus())
-    set_file!(dialog, get_file(dialog, UnconfirmedStatus()), ConfirmedStatus())
-    signal_action!(dialog)
+    directory = get_directory(dialog, UnconfirmedStatus())
+    file_name = get_file(dialog, UnconfirmedStatus())
+    path = joinpath(directory, file_name)
+    if is_queryable_file(path)
+        set_visibility!(dialog, false)
+        set_directory!(dialog, get_directory(dialog, UnconfirmedStatus()), ConfirmedStatus())
+        set_file!(dialog, get_file(dialog, UnconfirmedStatus()), ConfirmedStatus())
+        signal_action!(dialog)
+    else
+        CImGui.OpenPopup("Does the file exist?")
+    end
 end
+
+function handle_file_error_messaging()
+    if CImGui.BeginPopupModal("Does the file exist?", C_NULL, CImGui.ImGuiWindowFlags_AlwaysAutoResize)
+        CImGui.Text("Unable to access the specified file.\nPlease verify that: \n   (1) the file exists; \n   (2) you have permission to access the file.\n\n")
+        CImGui.Separator()
+        CImGui.Button("OK", (120, 0)) && CImGui.CloseCurrentPopup()
+        CImGui.SetItemDefaultFocus()
+        CImGui.EndPopup()
+    end
+
+    if CImGui.BeginPopupModal("Do you have permission to read the file?", C_NULL, CImGui.ImGuiWindowFlags_AlwaysAutoResize)
+        CImGui.Text("Unable to access the specified file.\nPlease verify that: \n   (1) the file exists; \n   (2) you have permission to read the file.\n\n")
+        CImGui.Separator()
+        CImGui.Button("OK", (120, 0)) && CImGui.CloseCurrentPopup()
+        CImGui.SetItemDefaultFocus()
+        CImGui.EndPopup()
+    end
+
+    if CImGui.BeginPopupModal("Do you have permission to modify the file?", C_NULL, CImGui.ImGuiWindowFlags_AlwaysAutoResize)
+        CImGui.Text("Unable to write to the specified file.\nPlease verify that: \n   (1) the file exists; \n   (2) you have permission to modify the file.\n\n")
+        CImGui.Separator()
+        CImGui.Button("OK", (120, 0)) && CImGui.CloseCurrentPopup()
+        CImGui.SetItemDefaultFocus()
+        CImGui.EndPopup()
+    end
+
+    if CImGui.BeginPopupModal("Has the file been corrupted?", C_NULL, CImGui.ImGuiWindowFlags_AlwaysAutoResize)
+        CImGui.Text("Unable to open the specified file.\nPlease verify that: \n   (1) the file has not been corrupted; \n   (2) you have permission to access the file.\n\n")
+        CImGui.Separator()
+        CImGui.Button("OK", (120, 0)) && CImGui.CloseCurrentPopup()
+        CImGui.SetItemDefaultFocus()
+        CImGui.EndPopup()
+    end
+end
+
+function is_openable_file(path)
+    try
+        open(identity, path)
+        return true
+    catch
+        return false
+    end
+end
+
+function is_readable_file(path)
+    if is_queryable_file(path)
+        return (uperm(path) & 0x04 > 0) ? true :  false
+    else
+        return false
+    end
+end
+
+function is_writeable_file(path)
+    if is_queryable_file(path)
+        return (uperm(path) & 0x02 > 0) ?  true :  false
+    else
+        return false
+    end
+end
+
+# function is_valid_selection(dialog::AbstractDialog)
+#     directory = get_directory(dialog, UnconfirmedStatus())
+#     file_name = get_file(dialog, UnconfirmedStatus())
+#     path = joinpath(directory, file_name)
+#     if is_readable_file(path)
+#         #return true
+#     else
+#         CImGui.OpenPopup("Delete?")
+#         @show "opened popup"
+#          # if CImGui.BeginPopupModal("Delete?", C_NULL, CImGui.ImGuiWindowFlags_AlwaysAutoResize)
+#          #    @show "inside"
+#          #    CImGui.EndPopup()
+#          # end
+#         # CImGui.OpenPopup("Delete?")
+#         # if CImGui.BeginPopupModal("Delete?", C_NULL, CImGui.ImGuiWindowFlags_AlwaysAutoResize)
+#         #     CImGui.Text("All those beautiful files will be deleted.\nThis operation cannot be undone!\n\n")
+#         #     CImGui.Separator()
+#         #
+#         #     # @cstatic dummy_i=Cint(0) @c CImGui.Combo("Combo", &dummy_i, "Delete\0Delete harder\0")
+#         #
+#         #     @cstatic dont_ask_me_next_time=false begin
+#         #         CImGui.PushStyleVar(CImGui.ImGuiStyleVar_FramePadding, (0, 0))
+#         #         @c CImGui.Checkbox("Don't ask me next time", &dont_ask_me_next_time)
+#         #         CImGui.PopStyleVar()
+#         #     end
+#         #
+#         #     CImGui.Button("OK", (120, 0)) && CImGui.CloseCurrentPopup()
+#         #     CImGui.SetItemDefaultFocus()
+#         #     CImGui.SameLine()
+#         #     CImGui.Button("Cancel",(120, 0)) && CImGui.CloseCurrentPopup()
+#         #     CImGui.EndPopup()
+#         # end
+#         #return false
+#     end
+#     return true
+# end

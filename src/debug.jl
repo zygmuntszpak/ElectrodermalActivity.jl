@@ -1,5 +1,6 @@
 using CSV
 using DataFrames
+using DSP
 
 f = CSV.File(joinpath(pwd(),"EDA.csv"), header=["EDA"]) |> DataFrame
 eda = Array{Union{Missing, Float64},1}(undef, 0)
@@ -12,7 +13,8 @@ hz = 4.0
 eda = f[:EDA]
 ts = eda[1]
 hz = eda[2]
-eda = eda[4:end]
+eda = Float64.(eda[4:end])
+
 
 
 

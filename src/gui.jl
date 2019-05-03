@@ -37,6 +37,8 @@ function launch()
     # setup Platform/Renderer bindings
     ImGui_ImplGlfw_InitForOpenGL(window, true)
     ImGui_ImplOpenGL3_Init(glsl_version)
+
+
     should_show_dialog = true
     clear_color = Cfloat[0.45, 0.55, 0.60, 1.00]
 
@@ -52,13 +54,14 @@ function launch()
     file_dialogs[string(E4()) * string(Tags())] = file_dialog₂
 
     # Stores tagged timestamps (if availabel)
-    tagged_timestamps = Vector{Float64}(undef, 0)
+    tagged_timestamps = nothing #Vector{Float64}(undef, 0)
 
     time_selector = TimeSelector(Cfloat(100), Cfloat(1224), Cfloat(100), Cfloat(1224), 1, 1, 250.0:250.0:1000.0)
     ts = 0.0
     hz = 4.0
     #eda = Array{Union{Missing, Float64},1}(undef, 0)
-    eda_record = ElectrodermalData(0.0, 0, Vector{Float64}(undef, 0), Vector{Float64}(undef, 0))
+    #eda_record = ElectrodermalData(0.0, 0, Vector{Float64}(undef, 0), Vector{Float64}(undef, 0))
+    eda_record = nothing
     events = Dict{String,MarkedInterval}()
     event_name = "\0"^(15)
     while !GLFW.WindowShouldClose(window)
@@ -81,48 +84,38 @@ function launch()
             end
             CImGui.EndMainMenuBar()
         end
-        #
-        # if isvisible(open_file_dialog)
-        #     display_dialog!(open_file_dialog)
-        #     if has_pending_action(open_file_dialog)
-        #         eda_record, time_selector = perform_dialog_action(open_file_dialog)
-        #         consume_action!(open_file_dialog)
-        #     end
-        # end
-        for (key, value) in file_dialogs
+
+        for (key, dialog) in file_dialogs
             # Handle importing EDA.csv for the Empatica E4 Sensor.
             if isequal(key, string(E4()) * string(SkinConductance()))
-                #dialog = get_dialog(value)
-                dialog = value
-                if isvisible(dialog)
-                    display_dialog!(dialog)
-                    if has_pending_action(dialog)
-                        eda_record, time_selector = perform_dialog_action(E4(), SkinConductance(), dialog)
-                        consume_action!(dialog)
-                    end
-                end
+                eda_record, time_selector = import_data!(eda_record, time_selector, E4(), SkinConductance(), dialog)
             end
             # Handle importing TAGS.csv for the Empatica E4 Sensor.
             if isequal(key, string(E4()) * string(Tags()))
-                #dialog = get_dialog(value)
-                dialog = value
-                if isvisible(dialog)
-                    display_dialog!(dialog)
-                    if has_pending_action(dialog)
-                        tagged_timestamps = perform_dialog_action(E4(), Tags(), dialog)
-                        consume_action!(dialog)
-                    end
-                end
+                tagged_timestamps = import_data!(tagged_timestamps, E4(), Tags(), dialog)
             end
         end
 
-        if !isempty(eda_record)
+        handle_file_error_messaging()
+
+        # if CImGui.BeginPopupModal("Has the file been corrupted?", C_NULL, CImGui.ImGuiWindowFlags_AlwaysAutoResize)
+        #     CImGui.Text("Unable to open the specified file.\nPlease verify that: \n   (1) the file has not been corrupted; \n   (2) you have permission to access the file.\n\n")
+        #     CImGui.Separator()
+        #     CImGui.Button("OK", (120, 0)) && CImGui.CloseCurrentPopup()
+        #     CImGui.SetItemDefaultFocus()
+        #     CImGui.EndPopup()
+        # end
+
+        # Display EDA data if it has been loaded.
+        if !isnothing(eda_record) && !isempty(eda_record)
             eda =  Float32.(get_eda(eda_record))
             start_timestamp = get_timestamp(eda_record)
             CImGui.SetNextWindowPos((0, 0))
             CImGui.Begin("Main",C_NULL, CImGui.ImGuiWindowFlags_NoBringToFrontOnFocus)
                 visualize_data!(time_selector, events, event_name, eda)
-                viusalize_events!(events, event_name, time_selector, eda, start_timestamp, tagged_timestamps)
+                if !isnothing(tagged_timestamps) && !isempty(tagged_timestamps)
+                    viusalize_events!(events, event_name, time_selector, eda, start_timestamp, tagged_timestamps)
+                end
             CImGui.End()
 
         end
@@ -148,10 +141,60 @@ function launch()
     GLFW.DestroyWindow(window)
 end
 
+function import_data!(eda_data, time_selector, product::E4, datatype::SkinConductance, dialog::OpenFileDialog)
+    if isvisible(dialog)
+        display_dialog!(dialog)
+        if has_pending_action(dialog)
+            eda_data, time_selector = perform_dialog_action(E4(), SkinConductance(), dialog)
+            consume_action!(dialog)
+        end
+    end
+    eda_data, time_selector
+end
+
+function import_data!(tagged_timestamps, product::E4, datatype::Tags, dialog::OpenFileDialog)
+    if isvisible(dialog)
+        display_dialog!(dialog)
+        if has_pending_action(dialog)
+            tagged_timestamps = perform_dialog_action(E4(), Tags(), dialog)
+            consume_action!(dialog)
+        end
+    end
+    tagged_timestamps
+end
+
 function perform_dialog_action(product::E4, datatype::SkinConductance, dialog::OpenFileDialog)
     directory = get_directory(dialog, ConfirmedStatus())
     file_name = get_file(dialog, ConfirmedStatus())
     path = joinpath(directory, file_name)
+    eda_data = nothing
+    time_selector = nothing
+    if is_readable_file(path)
+        try
+            eda_data = load_eda(product, datatype, path)
+            eda = get_unprocessed_eda(eda_data)
+            hz = get_sampling_frequency(eda_data)
+            # TODO revisit the interval story here...
+            spacing = Cfloat(40)
+            width = CImGui.GetWindowContentRegionWidth() - spacing
+            timestamps_in_ms = range(250; step = 1000 / hz, length = length(eda))
+            time_selector = TimeSelector(spacing, width, Cfloat(250), Cfloat(640), 1, length(eda), timestamps_in_ms)
+        catch e
+            println(e)
+            #set_visibility!(dialog, true)
+            CImGui.OpenPopup("Has the file been corrupted?")
+        end
+    else
+        #set_visibility!(dialog, true)
+        CImGui.OpenPopup("Do you have permission to read the file?")
+    end
+
+    eda_data, time_selector
+end
+
+# TODO Verify that the data conforms to the schema that we expect from EDA data.
+# Popup window if it doesn't.
+function load_eda(product::E4, datatype::SkinConductance, path::String)
     data = CSV.File(path, header=["EDA"]) |> DataFrame
     eda = Float64.(data[:EDA])
     ts = eda[1]
@@ -163,17 +206,7 @@ function perform_dialog_action(product::E4, datatype::SkinConductance, dialog::O
     # the plot.
     eda[3] = eda[4]
     eda = eda[3:end]
-
-    eda_record = ElectrodermalData(ts, hz, eda, eda)
-
-    timestamps_in_ms = range(250; step = 1000 / hz, length = length(eda))
-    # TODO revisit the interval story here...
-    spacing = Cfloat(40)
-    width = CImGui.GetWindowContentRegionWidth() - spacing
-    @show length(eda)
-    time_selector = TimeSelector(spacing, width, Cfloat(250), Cfloat(640), 1, length(eda), timestamps_in_ms)
-
-    eda_record, time_selector
+    ElectrodermalData(ts, hz, eda, eda)
 end
 
 function perform_dialog_action(product::E4, datatype::Tags, dialog::OpenFileDialog)
@@ -241,29 +274,32 @@ function populate_filter_menu!(eda_data::ElectrodermalData)
     end
 end
 
+
 function tag_event!(events, event_name₁, mi::MarkedInterval)
     events[event_name₁] = mi
 end
 
 function remove_event!(events, event_name)
+    @show events, event_name
     if haskey(events, event_name)
         delete!(events, event_name)
     end
 end
 
 function handle_event_annotation!(events,  event_name, time_selector, eda::AbstractArray)
-    buffer = Cstring(pointer(event_name))
+    #buffer = Cstring(pointer(event_name))
+    buffer = event_name
     CImGui.PushItemWidth(150)
     CImGui.InputText("###event description", buffer, length(event_name))
+    first_nul = findfirst(isequal('\0'), buffer)
+    event_name₁ = buffer[1:first_nul]
     CImGui.PopItemWidth()
     CImGui.SameLine()
     color = Cfloat[0/255, 144/255, 0/255, 250/255]
     # Tag on event name
-    CImGui.Button("Create Event") && tag_event!(events, event_name[1:end], MarkedInterval(event_name[1:end], copy(time_selector)))
+    CImGui.Button("Create Event") && tag_event!(events, event_name₁, MarkedInterval(event_name₁, copy(time_selector)))
     CImGui.SameLine()
-    CImGui.Button("Remove Event") && remove_event!(events, event_name[1:end])
-    #@show event_name
-    #CImGui.Button("Select Event..") && CImGui.OpenPopup("my_select_popup")
+    CImGui.Button("Remove Event") && remove_event!(events, event_name₁)
 end
 
 function viusalize_events!(events, event_name, time_selector, eda, start_timestamp, tagged_timestamps)
@@ -378,7 +414,7 @@ function handle_event_interaction!(time_interval, event_name, events,  x, y, hei
                set_x₀!(time_interval, get_x₀(time_intervalₙ))
                set_x₁!(time_interval, get_x₁(time_intervalₙ))
                # TODO Look into this once we update CImGui to sidestep pointer issue in strings.
-               #event_name = key[1:end]
+               event_name = key[1:end]
            end
     end
 end
@@ -414,7 +450,6 @@ end
 
 function determine_eda_roi(ts::TimeSelector, eda, x, y, width, height, spacing)
     CImGui.SetCursorPosX(x)
-    #CImGui.SetCursorPosY(x)
     CImGui.PlotLines("###eda_overview", eda, length(eda), 0 , "", minimum(eda), maximum(eda), (width, height))
     ts₂ = TimeSelector(get_interval₀(ts), get_interval₁(ts), get_interval₀(ts), get_interval₁(ts), 1, length(eda), get_timestamps(ts))
     pos = CImGui.GetCursorPos()
