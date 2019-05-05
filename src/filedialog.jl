@@ -1,8 +1,10 @@
 abstract type AbstractDialog end
 abstract type AbstractStatus end
-mutable struct OpenFileDialog <: AbstractDialog
-    opened_directory::String
-    opened_file::String
+mutable struct FileDialog <: AbstractDialog
+    action_string::String
+    action_button_string::String
+    directory::String
+    file::String
     unconfirmed_directory::String
     unconfirmed_file::String
     visible::Bool
@@ -12,63 +14,81 @@ end
 struct ConfirmedStatus <: AbstractStatus end
 struct UnconfirmedStatus <: AbstractStatus end
 
-function get_directory(dialog::AbstractDialog, status::UnconfirmedStatus)
+function get_action_string(dialog::FileDialog)
+    dialog.action_string
+end
+
+function set_action_string!(dialog::FileDialog, action_string::String)
+    dialog.action_string = action_string
+end
+
+function get_action_button_string(dialog::FileDialog)
+    dialog.action_button_string
+end
+
+function set_action_button_string!(dialog::FileDialog, action_button_string::String)
+    dialog.action_button_string = action_button_string
+end
+
+
+function get_directory(dialog::FileDialog, status::UnconfirmedStatus)
     dialog.unconfirmed_directory
 end
 
-function get_directory(dialog::AbstractDialog, status::ConfirmedStatus)
-    dialog.opened_directory
+function get_directory(dialog::FileDialog, status::ConfirmedStatus)
+    dialog.directory
 end
 
-function get_file(dialog::AbstractDialog, status::ConfirmedStatus)
-    dialog.opened_file
+function get_file(dialog::FileDialog, status::ConfirmedStatus)
+    dialog.file
 end
 
-function get_file(dialog::AbstractDialog, status::UnconfirmedStatus)
+function get_file(dialog::FileDialog, status::UnconfirmedStatus)
     dialog.unconfirmed_file
 end
 
-function set_directory!(dialog::AbstractDialog, directory_path::String, status::ConfirmedStatus)
-    dialog.opened_directory = directory_path
+function set_directory!(dialog::FileDialog, directory_path::String, status::ConfirmedStatus)
+    dialog.directory = directory_path
 end
 
-function set_directory!(dialog::AbstractDialog, directory_path::String, status::UnconfirmedStatus)
+function set_directory!(dialog::FileDialog, directory_path::String, status::UnconfirmedStatus)
     dialog.unconfirmed_directory = directory_path
 end
 
-function set_file!(dialog::AbstractDialog, file_name::String, status::ConfirmedStatus)
-    dialog.opened_file = file_name
+function set_file!(dialog::FileDialog, file_name::String, status::ConfirmedStatus)
+    dialog.file = file_name
 end
-function set_file!(dialog::AbstractDialog, file_name::String, status::UnconfirmedStatus)
+function set_file!(dialog::FileDialog, file_name::String, status::UnconfirmedStatus)
     dialog.unconfirmed_file = file_name
 end
 
-function isvisible(dialog::AbstractDialog)
+function isvisible(dialog::FileDialog)
     dialog.visible
 end
 
-function isconfirmed(dialog::AbstractDialog)
+function isconfirmed(dialog::FileDialog)
     dialog.confirmed
 end
 
-function set_visibility!(dialog::AbstractDialog, flag::Bool)
+function set_visibility!(dialog::FileDialog, flag::Bool)
     dialog.visible = flag
 end
 
-function has_pending_action(dialog::AbstractDialog)
+function has_pending_action(dialog::FileDialog)
     dialog.unprocessed_action
 end
 
-function signal_action!(dialog::AbstractDialog)
+function signal_action!(dialog::FileDialog)
     dialog.unprocessed_action = true
 end
 
-function consume_action!(dialog::AbstractDialog)
+function consume_action!(dialog::FileDialog)
     dialog.unprocessed_action = false
 end
 
-function display_dialog!(dialog::OpenFileDialog)
-    @c CImGui.Begin("Open File", &dialog.visible)
+function display_dialog!(dialog::FileDialog)
+    str = get_action_string(dialog)
+    @c CImGui.Begin(str, &dialog.visible)
         display_path!(dialog)
         display_directory_file_listing!(dialog)
         handle_unconfirmed_file!(dialog)
@@ -77,7 +97,7 @@ function display_dialog!(dialog::OpenFileDialog)
     CImGui.End()
 end
 
-function display_path!(dialog::AbstractDialog)
+function display_path!(dialog::FileDialog)
     path_directories = splitpath(get_directory(dialog, UnconfirmedStatus()))
     selected_directory = Cint(length(path_directories))
     # Draw a button for each directory that constitutes the current path.
@@ -90,7 +110,7 @@ function display_path!(dialog::AbstractDialog)
     set_directory!(dialog, path, UnconfirmedStatus())
 end
 
-function display_directory_file_listing!(dialog::AbstractDialog)
+function display_directory_file_listing!(dialog::FileDialog)
     # Make a list of directories that are visibile from the current directory.
     CImGui.NewLine()
     CImGui.BeginChild("Directory and File Listing", CImGui.ImVec2(CImGui.GetWindowWidth() * 0.98, -CImGui.GetWindowHeight() * 0.2))
@@ -100,7 +120,7 @@ function display_directory_file_listing!(dialog::AbstractDialog)
     CImGui.EndChild()
 end
 
-function handle_unconfirmed_file!(dialog::AbstractDialog)
+function handle_unconfirmed_file!(dialog::FileDialog)
     CImGui.Text("File Name:")
     CImGui.SameLine()
     file_name₀ = get_file(dialog, UnconfirmedStatus())
@@ -118,7 +138,7 @@ function extract_string(buffer)
     buffer[1:first_nul]
 end
 
-function deal_with_directory_selection!(dialog::AbstractDialog)
+function deal_with_directory_selection!(dialog::FileDialog)
     path = get_directory(dialog, UnconfirmedStatus())
     visible_directories = filter(p->is_readable_dir(joinpath(path, p)), readdir(path))
     for (n, folder_name) in enumerate(visible_directories)
@@ -142,7 +162,7 @@ function is_readable_dir(path)
     return flag
 end
 
-function deal_with_file_selection!(dialog::AbstractDialog)
+function deal_with_file_selection!(dialog::FileDialog)
     path = get_directory(dialog, UnconfirmedStatus())
     visible_files = filter(p->is_queryable_file(joinpath(path, p)), readdir(path))
     selected_file = Cint(0)
@@ -165,17 +185,18 @@ function is_queryable_file(path)
     return flag
 end
 
-function deal_with_file_confirmation!(dialog::AbstractDialog)
+function deal_with_file_confirmation!(dialog::FileDialog)
     CImGui.Button("Cancel") && (deal_with_cancellation!(dialog);)
     CImGui.SameLine()
-    CImGui.Button("Open") && (deal_with_confirmation!(dialog);)
+    str = get_action_button_string(dialog)
+    CImGui.Button(str) && (deal_with_confirmation!(dialog);)
 end
 
-function deal_with_cancellation!(dialog::AbstractDialog)
+function deal_with_cancellation!(dialog::FileDialog)
     set_visibility!(dialog, false)
 end
 
-function deal_with_confirmation!(dialog::AbstractDialog)
+function deal_with_confirmation!(dialog::FileDialog)
     directory = get_directory(dialog, UnconfirmedStatus())
     file_name = get_file(dialog, UnconfirmedStatus())
     path = joinpath(directory, file_name)

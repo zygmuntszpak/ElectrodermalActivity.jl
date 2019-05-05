@@ -44,14 +44,22 @@ function launch()
 
     #TODO Move this into an initialization function
     # The dictionary will contain various file dialogs for opening files from different vendors.
-    file_dialogs = Dict{String, OpenFileDialog}()
+    file_dialogs = Dict{String, FileDialog}()
     # Create a file dialog for handling the importation of skin conductance data from the E4 Empatica product.
-    file_dialog₁ =  OpenFileDialog(pwd(),"", pwd(),"", false, false)
+    file_dialog₁ =  FileDialog("Open File###eda","Open###eda", pwd(),"", pwd(),"", false, false)
     file_dialogs[string(E4()) * string(SkinConductance())] = file_dialog₁
 
     # Create a file dialog for handling the importation of tag data from the E4 Empatica product.
-    file_dialog₂ =  OpenFileDialog(pwd(),"", pwd(),"", false, false)
+    file_dialog₂ =  FileDialog("Open File###tags", "Open###tags", pwd(),"", pwd(),"", false, false)
     file_dialogs[string(E4()) * string(Tags())] = file_dialog₂
+
+    # Create a file dialog for handling the exportation of labelled intervals.
+    file_dialog₃ = FileDialog("Save File###save_interval_labels", "Save###save_interval_labels", pwd(),"", pwd(),"", false, false)
+    file_dialogs["Save"*string(IntervalLabels())] = file_dialog₃
+
+    # Create a file dialog for handling the exportation of labelled intervals.
+    file_dialog₄ = FileDialog("Open File###open_interval_labels", "Open###open_interval_labels", pwd(),"", pwd(),"", false, false)
+    file_dialogs["Open"*string(IntervalLabels())] = file_dialog₄
 
     # Stores tagged timestamps (if availabel)
     tagged_timestamps = nothing #Vector{Float64}(undef, 0)
@@ -75,11 +83,11 @@ function launch()
         if CImGui.BeginMainMenuBar()
             if CImGui.BeginMenu("File")
                 #populate_file_menu!(open_file_dialog)
-                populate_file_menu!(file_dialogs)
+                !isnothing(file_dialogs) && populate_file_menu!(file_dialogs)
                 CImGui.EndMenu()
             end
             if CImGui.BeginMenu("Filters")
-                populate_filter_menu!(eda_record)
+                !isnothing(eda_record) && populate_filter_menu!(eda_record)
                 CImGui.EndMenu()
             end
             CImGui.EndMainMenuBar()
@@ -94,6 +102,15 @@ function launch()
             if isequal(key, string(E4()) * string(Tags()))
                 tagged_timestamps = import_data!(tagged_timestamps, E4(), Tags(), dialog)
             end
+            # Handle exporting interval labels.
+            if isequal(key, "Open"*string(IntervalLabels()))
+                events = import_data(events, IntervalLabels(), dialog)
+
+            end
+            if isequal(key, "Save"*string(IntervalLabels()))
+                    export_data(events, dialog)
+            end
+
         end
 
         handle_file_error_messaging()
@@ -113,9 +130,7 @@ function launch()
             CImGui.SetNextWindowPos((0, 0))
             CImGui.Begin("Main",C_NULL, CImGui.ImGuiWindowFlags_NoBringToFrontOnFocus)
                 visualize_data!(time_selector, events, event_name, eda)
-                if !isnothing(tagged_timestamps) && !isempty(tagged_timestamps)
-                    viusalize_events!(events, event_name, time_selector, eda, start_timestamp, tagged_timestamps)
-                end
+                handle_interval_labels!(events, event_name, time_selector, eda, start_timestamp, tagged_timestamps)
             CImGui.End()
 
         end
@@ -141,29 +156,141 @@ function launch()
     GLFW.DestroyWindow(window)
 end
 
-function import_data!(eda_data, time_selector, product::E4, datatype::SkinConductance, dialog::OpenFileDialog)
+function import_data!(eda_data, time_selector, product::E4, datatype::SkinConductance, dialog::FileDialog)
     if isvisible(dialog)
         display_dialog!(dialog)
         if has_pending_action(dialog)
-            eda_data, time_selector = perform_dialog_action(E4(), SkinConductance(), dialog)
+            eda_data, time_selector = perform_dialog_action(product, datatype, dialog)
             consume_action!(dialog)
         end
     end
     eda_data, time_selector
 end
 
-function import_data!(tagged_timestamps, product::E4, datatype::Tags, dialog::OpenFileDialog)
+function import_data!(tagged_timestamps, product::E4, datatype::Tags, dialog::FileDialog)
     if isvisible(dialog)
         display_dialog!(dialog)
         if has_pending_action(dialog)
-            tagged_timestamps = perform_dialog_action(E4(), Tags(), dialog)
+            tagged_timestamps = perform_dialog_action(product, datatype, dialog)
             consume_action!(dialog)
         end
     end
     tagged_timestamps
 end
 
-function perform_dialog_action(product::E4, datatype::SkinConductance, dialog::OpenFileDialog)
+function import_data(events, datatype::IntervalLabels, dialog::FileDialog)
+    if isvisible(dialog)
+        display_dialog!(dialog)
+        if has_pending_action(dialog)
+            events = perform_open_action(events, E4(), datatype, dialog)
+            consume_action!(dialog)
+        end
+    end
+    events
+end
+
+function export_data(events, dialog::FileDialog)
+    if isvisible(dialog)
+        display_dialog!(dialog)
+        if has_pending_action(dialog)
+            perform_save_action(events, E4(), IntervalLabels(), dialog)
+            consume_action!(dialog)
+        end
+    end
+end
+
+function perform_open_action(events, product::E4, datatype::IntervalLabels, dialog::FileDialog)
+    directory = get_directory(dialog, ConfirmedStatus())
+    file_name = get_file(dialog, ConfirmedStatus())
+    path = joinpath(directory, file_name)
+    if is_readable_file(path)
+        try
+            events = load_interval_labels(product, datatype, path)
+
+            # eda = get_unprocessed_eda(eda_data)
+            # hz = get_sampling_frequency(eda_data)
+            # # TODO revisit the interval story here...
+            # spacing = Cfloat(40)
+            # width = CImGui.GetWindowContentRegionWidth() - spacing
+            # timestamps_in_ms = range(250; step = 1000 / hz, length = length(eda))
+            # time_selector = TimeSelector(spacing, width, Cfloat(250), Cfloat(640), 1, length(eda), timestamps_in_ms)
+        catch e
+            println(e)
+            CImGui.OpenPopup("Has the file been corrupted?")
+        end
+    else
+        CImGui.OpenPopup("Do you have permission to read the file?")
+    end
+    events
+end
+
+function load_interval_labels(product::E4, datatype::IntervalLabels, path::String)
+    events = Dict{String,MarkedInterval}()
+    data = CSV.File(path, header=["label", "t₀_ms", "t₁_ms", "start_ms", "step_ms", "end_ms"]) |> DataFrame
+    Base.display(data)
+    # for i = 1:size(data, 2)
+    #     events[data[i].label] = construct_marked_interval(data[i].label, data[i].t₀_ms, data[i].t₁_ms, data[i].start_ms, data[i].step_ms, data[i].end_ms)
+    # end
+    events
+end
+
+function construct_marked_interval(label, t₀_ms, t₁_ms, start_ms, step_ms, stop_ms)
+    padx₀ = Cfloat(60)
+    width = CImGui.GetWindowContentRegionWidth() - padx₀
+    timestamps = range(start_ms; step = step_ms, stop = stop_ms)
+    t₀ = Int.(div(t₀_ms, step_ms))
+    t₁ = Int.(div(t₁_ms, step_ms))
+    i₀ = padx₀
+    i₁ = padx₀ + width
+    x₀ = stretch_linearly(t₀, 1, length(timestamps), i₀, i₁)
+    x₁ = stretch_linearly(t₁, 1, length(timestamps), i₀, i₁)
+    time_selector = TimeSelector(Cfloat(i₀), Cfloat(i₁), x₀, x₁, t₀, t₁, timestamps)
+    MarkedInterval(label, time_selector)
+    #map_time_selector_to_window!(time_selector, x, width)
+end
+
+function perform_save_action(events, product::E4, datatype::IntervalLabels, dialog::FileDialog)
+    directory = get_directory(dialog, ConfirmedStatus())
+    file_name = get_file(dialog, ConfirmedStatus())
+    path = joinpath(directory, file_name)
+    data = nothing
+    N = length(events)
+    if N > 0
+        list_label = Vector{String}(undef, N)
+        list_t₀_ms = Vector{Float64}(undef, N)
+        list_t₁_ms = Vector{Float64}(undef, N)
+        list_start_ms  = Vector{Float64}(undef, N)
+        list_step_ms  = Vector{Float64}(undef, N)
+        list_end_ms = Vector{Float64}(undef, N)
+        n = 1
+        for (key, value) in events
+             time_interval = get_time_interval(value)
+             list_label[n] = get_label(value)
+             list_t₀_ms[n] = get_t₀_ms(time_interval)
+             list_t₁_ms[n] = get_t₁_ms(time_interval)
+             timestamps = get_timestamps(time_interval)
+             list_start_ms[n] = first(timestamps)
+             list_step_ms[n] = step(timestamps)
+             list_end_ms[n] = last(timestamps)
+             n += 1
+        end
+        data = table((label = list_label, t0_ms = list_t₀_ms, t1_ms = list_t₁_ms, start_ms = list_start_ms, step_ms = list_step_ms, end_ms = list_end_ms))
+        if is_writeable_file(path)
+            try
+                CSV.write(path, data)
+            catch e
+                println(e)
+                # TODO change this to something more appropriate.
+                CImGui.OpenPopup("Do you have permission to read the file?")
+            end
+        else
+            CImGui.OpenPopup("Do you have permission to read the file?")
+        end
+    end
+    Base.display(data)
+end
+
+function perform_dialog_action(product::E4, datatype::SkinConductance, dialog::FileDialog)
     directory = get_directory(dialog, ConfirmedStatus())
     file_name = get_file(dialog, ConfirmedStatus())
     path = joinpath(directory, file_name)
@@ -181,11 +308,9 @@ function perform_dialog_action(product::E4, datatype::SkinConductance, dialog::O
             time_selector = TimeSelector(spacing, width, Cfloat(250), Cfloat(640), 1, length(eda), timestamps_in_ms)
         catch e
             println(e)
-            #set_visibility!(dialog, true)
             CImGui.OpenPopup("Has the file been corrupted?")
         end
     else
-        #set_visibility!(dialog, true)
         CImGui.OpenPopup("Do you have permission to read the file?")
     end
 
@@ -209,7 +334,7 @@ function load_eda(product::E4, datatype::SkinConductance, path::String)
     ElectrodermalData(ts, hz, eda, eda)
 end
 
-function perform_dialog_action(product::E4, datatype::Tags, dialog::OpenFileDialog)
+function perform_dialog_action(product::E4, datatype::Tags, dialog::FileDialog)
     @show "Do something with Tags!"
     directory = get_directory(dialog, ConfirmedStatus())
     file_name = get_file(dialog, ConfirmedStatus())
@@ -218,24 +343,13 @@ function perform_dialog_action(product::E4, datatype::Tags, dialog::OpenFileDial
     tagged_timestamps = Float64.(data[:TAGS])
 end
 
-# function populate_file_menu!(dialog::AbstractDialog)
-#     if CImGui.BeginMenu("Import")
-#         if CImGui.BeginMenu("Empatica E4")
-#             if CImGui.MenuItem("EDA.csv")
-#                 set_visibility!(dialog, true)
-#             end
-#             if CImGui.MenuItem("TEMP.csv")
-#             end
-#             if CImGui.MenuItem("tags.csv")
-#             end
-#             CImGui.EndMenu()
-#         end
-#        CImGui.EndMenu()
-#     end
-# end
 
 function populate_file_menu!(dialogs)
     if CImGui.BeginMenu("Import")
+        if CImGui.MenuItem("Interval Labels")
+            dialog = dialogs["Open"*string(IntervalLabels())]
+            set_visibility!(dialog, true)
+        end
         if CImGui.BeginMenu("Empatica E4")
             if CImGui.MenuItem("EDA.csv")
                 dialog = dialogs[string(E4()) * string(SkinConductance())]
@@ -251,6 +365,16 @@ function populate_file_menu!(dialogs)
             CImGui.EndMenu()
         end
        CImGui.EndMenu()
+    end
+    if CImGui.BeginMenu("Export")
+        if CImGui.BeginMenu("Interval")
+            if CImGui.MenuItem("Labels")
+                dialog = dialogs["Save"*string(IntervalLabels())]
+                set_visibility!(dialog, true)
+            end
+            CImGui.EndMenu()
+        end
+        CImGui.EndMenu()
     end
 end
 
@@ -297,12 +421,12 @@ function handle_event_annotation!(events,  event_name, time_selector, eda::Abstr
     CImGui.SameLine()
     color = Cfloat[0/255, 144/255, 0/255, 250/255]
     # Tag on event name
-    CImGui.Button("Create Event") && tag_event!(events, event_name₁, MarkedInterval(event_name₁, copy(time_selector)))
+    CImGui.Button("Create Interval Label") && tag_event!(events, event_name₁, MarkedInterval(event_name₁, copy(time_selector)))
     CImGui.SameLine()
-    CImGui.Button("Remove Event") && remove_event!(events, event_name₁)
+    CImGui.Button("Remove Interval Label") && remove_event!(events, event_name₁)
 end
 
-function viusalize_events!(events, event_name, time_selector, eda, start_timestamp, tagged_timestamps)
+function handle_interval_labels!(events, event_name, time_selector, eda, start_timestamp, tagged_timestamps)
     # TODO move these values out of this function....
 
     # We indent all of the plots and widgets to leave space for the
@@ -330,8 +454,8 @@ function viusalize_events!(events, event_name, time_selector, eda, start_timesta
     # Respond to mouse events on the demarcated region.
     handle_event_interaction!(time_selector, event_name, events, x, y-108, overview_plot_height)
     #draw_events(events, x, y-108, width, overview_plot_height)
-    #
-    demarcate_tags(tagged_timestamps, start_timestamp, time_selector, x, y-108 , width, overview_plot_height)
+    # Display any available time tags
+    !isnothing(tagged_timestamps) && demarcate_tags(tagged_timestamps, start_timestamp, time_selector, x, y-108 , width, overview_plot_height)
 end
 
 # function visualize_tags!()
@@ -443,7 +567,6 @@ function visualize_data!(time_selector, events, event_name, eda::AbstractArray)
         # Plots the eda for the entire session and creates a draggable widget which allows
         # the user to select a region of interest to zoom-in on.
         determine_eda_roi(time_selector, eda, x, y, width, overview_plot_height, x_tick_spacing)
-
 end
 
 
@@ -580,11 +703,6 @@ function map_time_selector_to_window!(time_selector, x, width)
     set_x₀!(time_selector,  x₀ <= i₀ ? i₀ : x₀)
     x₁ = get_x₁(time_selector)
     set_x₁!(time_selector,  x₁ >= i₁ ? i₁ : x₁)
-end
-
-
-function draw_event_overlay()
-
 end
 
 function stretch_linearly(x, A, B, a, b)

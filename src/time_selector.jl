@@ -1,3 +1,4 @@
+# TODO: Consider constructor which will automatically set correct values
 mutable struct TimeSelector{T₁ <: Number, T₂ <: Number, T₃ <: Integer, T₄ <: Integer,  T₅ <: AbstractRange}
     interval₀::T₁
     interval₁::T₁
