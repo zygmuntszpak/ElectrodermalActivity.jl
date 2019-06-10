@@ -23,7 +23,14 @@ function (store::CSVExporter{<:AbstractSchema})(path::Path, eda::ElectrodermalDa
     timestamp = get_timestamp(eda)
     frequency = get_sampling_frequency(eda)
     raw_eda = get_unprocessed_eda(eda)
-    df = DataFrame(Raw = vcat(timestamp, frequency, raw_eda))
+    eda = get_eda(eda)
+    # TODO The exporting of filtered vs unfiltered data needs to be refactored.
+    if norm(raw_eda - eda) < 1e-15
+        df = DataFrame(Raw = vcat(timestamp, frequency, raw_eda), Unfiltered = vcat(timestamp, frequency, eda))
+    else
+        df = DataFrame(Raw = vcat(timestamp, frequency, raw_eda), Filtered = vcat(timestamp, frequency, eda))
+    end
+    #df = DataFrame(Raw = vcat(timestamp, frequency, raw_eda))
     labelled_intervals = get_labelled_intervals(li)
     for (key, labelled_interval) in pairs(labelled_intervals)
         nested_interval = labelled_interval.nested_interval

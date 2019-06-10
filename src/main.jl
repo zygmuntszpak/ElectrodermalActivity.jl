@@ -1,5 +1,5 @@
 
-function run_gui()
+function launch()
 
     @static if Sys.isapple()
         # OpenGL 3.2 + GLSL 150
@@ -41,51 +41,12 @@ function run_gui()
     # of various widges.
     clear_color = Cfloat[0.45, 0.55, 0.60, 1.00]
 
-    # controllers = Dict{String, AbstractControl}()
-    # properties = Dict{String, AbstractDisplayProperties}()
-    # operations = Dict{String, AbstractOperations}()
-
-    # # The controller is responsible for instantiating the dialog GUI,
-    # # handling user input and tiggering the file importer once the user
-    # # confirms the selection of a particular file.
-    # control = FileDialogControl(true)
-    # # The model store the path that the user has confirmed, as well as the
-    # # path that the user has selected but not necessarily confirmed.
-    # model = FileDialogModel(Path(pwd(),"hello"), Path(pwd(),"hello"))
-    # # The display properties include the title of the file dialog and what
-    # # action string is to be displayed on the button.
-    # properties = FileDialogDisplayProperties("Open File###CSV", "Open###CSV", ImVec2(0,0), 100, 100)
-    # # The importer is triggered once the user has confirmed the selection of a
-    # # particular path.
-    # load_csv = CSVImporter(false)
-    #
-    # #mvcs = Vector{ModelViewControl}(undef, 0)
-    # mvc = ModelViewControl(control, model, properties, load_csv)
-    # #push!(mvcs, mvc)
-    #
-    #
-    #
-    # control₂ =  FileDialogControl(true)
-    # model₂ = FileDialogModel(Path(pwd(),"hello"), Path(pwd(),"hello"))
-    # properties₂ = FileDialogDisplayProperties("Open File###Image", "Open###Image", ImVec2(0,0), 100, 100)
-    # load_image = ImageImporter(false)
-    #
-    # mvc₂ = ModelViewControl(control₂, model₂, properties₂, load_image)
-    #push!(mvcs, mvc₂)
-
-    # Dictionary which will store all GUI controllers
-    # contexts = Dict{String, AbstractContext}()
-    # import_contexts = Dict{String, ImportContext}()
 
     gui_events = Dict{String, Bool}()
-    # mvcs = Dict{String, ModelViewControl}()
-    # mvcs["load_empatica_eda"] = mvc
-    # mvcs["load_image"] = mvc₂
 
     eda_data = nothing
     tags_data = nothing
     electrodermal_data = nothing
-
 
     # Initialize importers
     import_labels_key = "Import Interval Labels"
@@ -124,9 +85,6 @@ function run_gui()
     plotcontrol = PlotlinesControl(true)
     plot_outline_context = PlotContext(plotcontrol, plotmodel, plotproperties₂)
 
-    # Configure interactive truncated/zoomed plot context.
-    #truncplot_context = TruncatedPlotContext(PlotlinesControl(true),  plot_outline_context, ni_context)
-
     plot_data_context = nothing
     ni_context = nothing
     plot_roi_context = nothing
@@ -146,13 +104,11 @@ function run_gui()
         menubar!(gui_events)
         for (key, event) in pairs(gui_events)
             if key == import_eda_key
-                @show "Import EDA"
                 if event == true
                     enable!(import_eda.control)
                     gui_events[key] = false
                 end
                 electrodermal_data₀ = import_eda()
-                @show isenabled(import_eda.control), isenabled(import_eda.action)
                 if !isrunning(import_eda) && !isnothing(electrodermal_data₀)
                     electrodermal_data = electrodermal_data₀
                     plot_data_context = construct_plot_data_context(electrodermal_data)
@@ -189,7 +145,6 @@ function run_gui()
                 end
             end
             if key == "Export Interval Labels"
-                @show "Export Interval Labels"
                 if isnothing(electrodermal_data)
                     CImGui.OpenPopup("Have you loaded electrodermal activity data?")
                     delete!(gui_events, key)
@@ -205,7 +160,6 @@ function run_gui()
                 end
             end
             if key == "Export Electrodermal Activity"
-                @show "Export Electrodermal Activity"
                 if isnothing(electrodermal_data)
                     CImGui.OpenPopup("Have you loaded electrodermal activity data?")
                     delete!(gui_events, key)
@@ -221,7 +175,6 @@ function run_gui()
                 end
             end
             if key == "Import Interval Labels"
-                #@show "Import Interval Labels"
                 if isnothing(plot_data_context)
                     CImGui.OpenPopup("Have you loaded electrodermal activity data?")
                     delete!(gui_events, key)
@@ -232,8 +185,6 @@ function run_gui()
                     end
                     data = import_labelled_intervals()
                     if !isrunning(import_labelled_intervals) && !isnothing(data)
-                        # TODO Make a copy of data?
-                        Base.display(data)
                         labelled_intervals = data
                         label_context = construct_labelled_interval_context(labelled_intervals, plot_data_context.model, ni_context.model, get_layout(plot_data_context.display_properties))
                         delete!(gui_events, key)
@@ -244,7 +195,6 @@ function run_gui()
                  enable_filter = !enable_filter
                  if !isnothing(electrodermal_data)
                      apply_filter!(enable_filter, electrodermal_data)
-                     Base.display(get_eda(electrodermal_data))
                      # Update all contexts so that they reflect the new data
                      plot_data_context = construct_plot_data_context(electrodermal_data)
                      data = get_eda(electrodermal_data)
@@ -253,7 +203,6 @@ function run_gui()
                      ni_context = construct_nested_interval_context(ni_model, plot_data_context)
                      # Configure interactive truncated/zoomed plot context.
                      plot_roi_context = TruncatedPlotContext(PlotlinesControl(true),  plot_outline_context, ni_context)
-                     #
                      label_context = construct_labelled_interval_context(label_context.model, plot_data_context.model, ni_context.model, get_layout(plot_data_context.display_properties))
                      delete!(gui_events, key)
                 end
@@ -262,10 +211,17 @@ function run_gui()
 
         handle_import_error_messages()
 
-        # Display the electrodermal activity data concomitant interval selector
-        !isnothing(plot_roi_context) ? plot_roi_context() : nothing
+        # Display the electrodermal activity data and concomitant interval selector.
+        if !isnothing(plot_roi_context)
+            CImGui.Begin("EDA (microsiemens)",C_NULL, CImGui.ImGuiWindowFlags_NoBringToFrontOnFocus)
+                plot_roi_context()
+            CImGui.End()
+        end
 
-        # Display the labelled conditions and markers
+        #!isnothing(plot_roi_context) ? plot_roi_context() : nothing
+
+
+        # Display the labelled conditions and markers.
         if !isnothing(label_context) || !isnothing(tags_context)
             CImGui.Begin("Conditions###Conditions and Tags",C_NULL, CImGui.ImGuiWindowFlags_NoBringToFrontOnFocus)
                 pos = CImGui.GetCursorScreenPos()

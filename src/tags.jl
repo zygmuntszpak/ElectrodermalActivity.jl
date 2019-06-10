@@ -70,8 +70,6 @@ function (control::TagsControl)(model::TagsModel, properties::TagsDisplayPropert
     unix_start_timestamp = get_unix_start_time(model)
     time₀ = get_start_time(model)
     time₁ = get_stop_time(model)
-    #time₀ = first(get_interal(model.nested_interval)) * intersample_duration
-    #time₁ = last(get_interal(model.nested_interval)) * intersample_duration
     CImGui.Dummy(ImVec2(0, padding[1]))
     CImGui.Indent(padding[2])
     pos = CImGui.GetCursorScreenPos()
@@ -80,10 +78,8 @@ function (control::TagsControl)(model::TagsModel, properties::TagsDisplayPropert
     height = totalheight
     for stamp in tagged_timestamps
         # Convert the difference in unix timestamps to milliseconds
-        #@show stamp, unix_start_timestamp
         Δms = (stamp - unix_start_timestamp) * 1000
         xₙ = stretch_linearly(Δms, time₀, time₁, pos.x, pos.x + width)
-        #@show xₙ, Δms, time₀, time₁, pos.x, pos.x + width
         CImGui.AddLine(draw_list, ImVec2(xₙ, pos.y + yoffset), ImVec2(xₙ , pos.y + height + yoffset), Base.convert(ImU32, ImVec4(0.9, 0.0, 0.0, 0.9)), Cfloat(2));
     end
     CImGui.Unindent(padding[2])

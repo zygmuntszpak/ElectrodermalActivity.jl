@@ -5,8 +5,7 @@ function menubar!(events::Dict{String, Bool})
            CImGui.EndMenu()
        end
        if CImGui.BeginMenu("Filters")
-           #populate_filter_menu!(mvcs)
-        # todo make sure it is initially unticked
+        # TODO make sure it is initially always unticked
         @cstatic enabled=false begin
              if @c CImGui.MenuItem("Lowpass 1Hz", "", &enabled)
                    keystr = "Filter Lowpass 1Hz"

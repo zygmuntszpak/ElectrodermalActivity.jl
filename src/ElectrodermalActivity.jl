@@ -12,6 +12,7 @@ using CImGuiExtensions
 using DataFrames
 using Dates
 using TimeZones
+using LinearAlgebra
 using DSP
 
 include("electrodermal.jl")
@@ -26,9 +27,6 @@ include("menubar.jl")
 include("main.jl")
 
 
-export run_gui,
-       ModelViewControl
-
-
+export launch
 
 end # module
