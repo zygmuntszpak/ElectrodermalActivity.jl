@@ -337,11 +337,11 @@ function handle_import_error_messages()
         CImGui.EndPopup()
     end
 
-    # if CImGui.BeginPopupModal("Do you have permission to read the file?", C_NULL, CImGui.ImGuiWindowFlags_AlwaysAutoResize)
-    #     CImGui.Text("Unable to access the specified file.\nPlease verify that: \n   (1) the file exists; \n   (2) you have permission to read the file.\n\n")
-    #     CImGui.Separator()
-    #     CImGui.Button("OK", (120, 0)) && CImGui.CloseCurrentPopup()
-    #     CImGui.SetItemDefaultFocus()
-    #     CImGui.EndPopup()
-    # end
+    if CImGui.BeginPopupModal("Have you opened the appropriate file?", C_NULL, CImGui.ImGuiWindowFlags_AlwaysAutoResize)
+        CImGui.Text("The file format does not to conform to the expected schema.\nPlease verify that the data in the file follows the expected convention.\n\n")
+        CImGui.Separator()
+        CImGui.Button("OK", (120, 0)) && CImGui.CloseCurrentPopup()
+        CImGui.SetItemDefaultFocus()
+        CImGui.EndPopup()
+    end
 end

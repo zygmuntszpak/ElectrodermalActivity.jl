@@ -43,14 +43,25 @@ end
 function (load::CSVImporter{<:CSVSchema{<: Empatica, <: E4, <: SkinConductance}})(path::Path)
     disable!(load)
     df = load_dataframe(path, ["EDA"])
-    data = df[:EDA]
-    timestamp = data[1]
-    sampling_frequency = convert(Int,data[2])
-    ElectrodermalData(timestamp , sampling_frequency, data[3:end], data[3:end])
+    if isnothing(df)
+        CImGui.OpenPopup("Have you opened the appropriate file?")
+        return nothing
+    else
+        data = df[:EDA]
+        timestamp = data[1]
+        sampling_frequency = convert(Int,data[2])
+        return ElectrodermalData(timestamp , sampling_frequency, data[3:end], data[3:end])
+    end
  end
 
  function (load::CSVImporter{<:CSVSchema{<: Empatica, <: E4, <: Tags}})(path::Path)
      disable!(load)
      df = load_dataframe(path, ["Tags"])
-     data = df[:,1]
+     if isnothing(df)
+         CImGui.OpenPopup("Have you opened the appropriate file?")
+         return nothing
+     else
+         data = df[:,1]
+         return data
+     end
   end
