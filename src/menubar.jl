@@ -14,6 +14,13 @@ function menubar!(events::Dict{String, Bool})
             CImGui.EndMenu()
         end
        end
+       if CImGui.BeginMenu("Settings")
+           if CImGui.MenuItem("Select Time Zone")
+               keystr = "Select Time Zone"
+               events[keystr] = true
+           end
+           CImGui.EndMenu()
+       end
        CImGui.EndMainMenuBar()
    end
 end

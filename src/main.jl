@@ -58,6 +58,10 @@ function launch()
     import_tags_key = "Empatica E4 tags.csv"
     import_tags = create_import_context(Empatica(), E4(), Tags(), import_tags_key)
 
+    select_timezone_key = "Select Time Zone"
+    # Set the default time zome in accordance with the PC.
+    select_timezone = create_timezone_context(localzone().name, timezone_names())
+
     # Initialize exporters
     labels_key = "Export Interval Labels"
     export_labelled_intervals = create_export_context(GenericVendor(), GenericProduct(), IntervalLabels(), labels_key)
@@ -90,7 +94,6 @@ function launch()
     plot_roi_context = nothing
     label_context = nothing
     tags_context = nothing
-
     enable_filter = false
 
     while !GLFW.WindowShouldClose(window)
@@ -207,6 +210,32 @@ function launch()
                      delete!(gui_events, key)
                 end
              end
+             if key == "Select Time Zone"
+                 if isnothing(plot_data_context)
+                     CImGui.OpenPopup("Have you loaded electrodermal activity data?")
+                     delete!(gui_events, key)
+                 else
+                     if event == true
+                         enable!(select_timezone)
+                         gui_events[key] = false
+                     end
+                     data = select_timezone()
+                     if !isrunning(select_timezone) && !isnothing(data)
+                         tz = data
+                         #label_context = construct_labelled_interval_context(labelled_intervals, plot_data_context.model, ni_context.model, get_layout(plot_data_context.display_properties))
+                         plot_outline_context = plot_roi_context.plot_context
+                         properties = plot_outline_context.display_properties
+                         xtick = get_xtick(properties)
+                         interpreter = get_interpreter(xtick)
+                         timestamp = get_timestamp(interpreter)
+                         intersample_duration = get_intersample_duration(interpreter)
+                         nested_interval = get_nested_interval(interpreter)
+                         xtick_new = Tickmark(; interpret = TimestampResolver(tz, timestamp, intersample_duration, nested_interval), spacing = Cfloat(15))
+                         set_xtick!(properties, xtick_new )
+                         delete!(gui_events, key)
+                     end
+                 end
+             end
         end
 
         handle_import_error_messages()
@@ -217,9 +246,6 @@ function launch()
                 plot_roi_context()
             CImGui.End()
         end
-
-        #!isnothing(plot_roi_context) ? plot_roi_context() : nothing
-
 
         # Display the labelled conditions and markers.
         if !isnothing(label_context) || !isnothing(tags_context)
@@ -292,7 +318,7 @@ function construct_plot_outline_context(ni_model, plotmodel,  data::Electroderma
     timestamp₀ = get_timestamp(data)
     data_layout = RectangularLayout(pos = ImVec2(0,0), width = Cfloat(1820), height = Cfloat(400))
     # Configure zoomed plot context.
-    plotproperties₂ = PlotlinesDisplayProperties(id = "###eda"; caption = DurationResolver(Δt, ni_model), layout = data_layout, padding = (0,80,0,0), xtick = Tickmark(; interpret = TimestampResolver(timestamp₀, Δt, ni_model), spacing = Cfloat(15)))
+    plotproperties₂ = PlotlinesDisplayProperties(id = "###eda"; caption = DurationResolver(Δt, ni_model), layout = data_layout, padding = (0,80,0,0), xtick = Tickmark(; interpret = TimestampResolver(localzone().name,timestamp₀, Δt, ni_model), spacing = Cfloat(15)))
     plotcontrol = PlotlinesControl(true)
     plot_outline_context = PlotContext(plotcontrol, plotmodel, plotproperties₂)
     return plot_outline_context
@@ -328,6 +354,10 @@ function apply_filter!(enabled::Bool, electrodermal_data::ElectrodermalData)
     end
 end
 
+function create_timezone_context(zone::String, possible_zones::Vector{String})
+    TimeZoneContext(TimeZoneControl(false), TimeZoneModel(zone,  possible_zones), TimeZoneDisplayProperties(), SelectTimeZone(true))
+end
+
 function handle_import_error_messages()
     if CImGui.BeginPopupModal("Have you loaded electrodermal activity data?", C_NULL, CImGui.ImGuiWindowFlags_AlwaysAutoResize)
         CImGui.Text("Please first import the accompanying electrodermal activity data.\n\n")
@@ -337,11 +367,11 @@ function handle_import_error_messages()
         CImGui.EndPopup()
     end
 
-    if CImGui.BeginPopupModal("Have you opened the appropriate file?", C_NULL, CImGui.ImGuiWindowFlags_AlwaysAutoResize)
-        CImGui.Text("The file format does not to conform to the expected schema.\nPlease verify that the data in the file follows the expected convention.\n\n")
-        CImGui.Separator()
-        CImGui.Button("OK", (120, 0)) && CImGui.CloseCurrentPopup()
-        CImGui.SetItemDefaultFocus()
-        CImGui.EndPopup()
-    end
+    # if CImGui.BeginPopupModal("Do you have permission to read the file?", C_NULL, CImGui.ImGuiWindowFlags_AlwaysAutoResize)
+    #     CImGui.Text("Unable to access the specified file.\nPlease verify that: \n   (1) the file exists; \n   (2) you have permission to read the file.\n\n")
+    #     CImGui.Separator()
+    #     CImGui.Button("OK", (120, 0)) && CImGui.CloseCurrentPopup()
+    #     CImGui.SetItemDefaultFocus()
+    #     CImGui.EndPopup()
+    # end
 end

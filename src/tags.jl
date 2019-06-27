@@ -1,5 +1,6 @@
 import CImGuiExtensions.get_layout
 import CImGuiExtensions.get_padding
+import CImGuiExtensions.get_captioner
 #import CImGuiExtensions.is_new_window
 
 struct TagsModel{T₁ <: Real, T₂ <: Real, T₃ <: Real, T₄ <: AbstractVector} <: AbstractModel
