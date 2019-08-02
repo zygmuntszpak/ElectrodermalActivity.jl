@@ -14,7 +14,7 @@ function create_import_context(vendor::AbstractVendor, product::AbstractProduct,
     model = FileDialogModel(Path(pwd(),""), Path(pwd(),""))
     # The display properties include the title of the file dialog and what
     # action string is to be displayed on the button.
-    properties = FileDialogDisplayProperties(caption = "Open File###"*keystr, action = "Open###"*keystr)
+    properties = FileDialogDisplayProperties(caption = "Open File###"*keystr, action = "Open###"*keystr, width = Cfloat(640), height = Cfloat(395))
     # The importer is triggered once the user has confirmed the selection of a
     # particular path.
     load_csv = CSVImporter(false, CSVSchema(vendor, product, data))
@@ -32,7 +32,7 @@ function create_import_context(vendor::Empatica, product::E4, data::SkinConducta
     model = FileDialogModel(Path(pwd(),""), Path(pwd(),""))
     # The display properties include the title of the file dialog and what
     # action string is to be displayed on the button.
-    properties = FileDialogDisplayProperties(caption = "Open File###"*keystr, action = "Open###"*keystr)
+    properties = FileDialogDisplayProperties(caption = "Open File###"*keystr, action = "Open###"*keystr, width = Cfloat(640), height = Cfloat(395))
     # The importer is triggered once the user has confirmed the selection of a
     # particular path.
     load_csv = CSVImporter(false, CSVSchema(vendor, product, data))
