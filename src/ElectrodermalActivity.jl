@@ -14,6 +14,7 @@ using Dates
 using TimeZones
 using LinearAlgebra
 using DSP
+using CSV # Temporarily needed for prepare_heartrate fix.
 
 include("electrodermal.jl")
 include("tags.jl")
@@ -26,8 +27,10 @@ include("importers.jl")
 include("exporters.jl")
 include("menubar.jl")
 include("main.jl")
+include("utility.jl")
 
 
-export launch
+export launch,
+       prepare_heartrate
 
 end # module
