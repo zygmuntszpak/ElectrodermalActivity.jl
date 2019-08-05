@@ -8,7 +8,7 @@ function create_export_context(vendor::AbstractVendor, product::AbstractProduct,
     model = FileDialogModel(Path(pwd(),""), Path(pwd(),""))
     # The display properties include the title of the file dialog and what
     # action string is to be displayed on the button.
-    properties = FileDialogDisplayProperties(caption = "Save File###"*keystr, action = "Save###"*keystr)
+    properties = FileDialogDisplayProperties(caption = "Save File###"*keystr, action = "Save###"*keystr, width = Cfloat(640), height = Cfloat(395))
     # The importer is triggered once the user has confirmed the selection of a
     # particular path.
     store_csv = CSVExporter(false, CSVSchema(vendor, product, data))
