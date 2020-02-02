@@ -60,11 +60,13 @@ function prepare_empatica(in_directory::String, out_directory::String, names::Na
     eda_path = joinpath(in_directory, "EDA.csv")
     hr_path = joinpath(in_directory, "HR.csv")
     tags_path = joinpath(in_directory, "tags.csv")
+    ibi_path = joinpath(in_directory, "IBI.csv")
 
 
     eda = CSV.File(eda_path; header = ["EDA"]) |> DataFrame
     hr = CSV.File(hr_path; header = ["HR"]) |> DataFrame
     tags = CSV.File(tags_path; header = ["TAGS"]) |> DataFrame
+    ibi = CSV.File(ibi_path; header = ["Timestamps", "IBI"]) |> DataFrame
 
     eda_timestamp = eda[1,1]
     eda_frequency = eda[2,1]
@@ -75,12 +77,20 @@ function prepare_empatica(in_directory::String, out_directory::String, names::Na
 
     hr_timestamp = hr[1,1]
     hr_frequency = hr[2,1]
+
+    ibi_timestamp = ibi[1,1]
+    ibi_data = ibi[2:end,:]
+
     #tags
 
     eda_data = eda[3:end,1]
 
     eda_processed = prepare_eda(eda_data, eda_timestamp, eda_frequency, tags, names, offsets)
     CSV.write(joinpath(out_directory, "EDA_annotated.csv"), eda_processed)
+
+    ibi_processed = prepare_ibi(ibi_data, ibi_timestamp, tags, names, offsets)
+    CSV.write(joinpath(out_directory, "IBI_annotated.csv"), ibi_processed)
+
     eda_processed
     #time₀, time₁, timestamps
 end
@@ -98,12 +108,12 @@ function prepare_eda(eda, unix_start, eda_frequency, tags::DataFrame, names::Nam
     seconds_to_tag₁ = tag₁ - unix_start
     seconds_to_tag₂ = tag₂ - unix_start
 
-    @show seconds_to_tag₁,  seconds_to_tag₂
+    #@show seconds_to_tag₁,  seconds_to_tag₂
 
     interval₁, interval₂, interval₃, interval₄ = determine_intervals(seconds_to_tag₁, seconds_to_tag₂, offsets)
 
     N = length(eda)
-    @show N
+    #@show N
     # Timestep expressed in fractions of a second.
     Δt = (1 / eda_frequency)
     timestamps = range(Δt, step = Δt, length = N)
@@ -119,6 +129,34 @@ function prepare_eda(eda, unix_start, eda_frequency, tags::DataFrame, names::Nam
     df = hcat(df, DataFrame([vcat(unix_start, eda_frequency, indicator₂)], [Symbol(names.name_2)]))
     df = hcat(df, DataFrame([vcat(unix_start, eda_frequency, indicator₃)], [Symbol(names.name_3)]))
     df = hcat(df, DataFrame([vcat(unix_start, eda_frequency, indicator₄)], [Symbol(names.name_4)]))
+
+    return df
+end
+
+function prepare_ibi(ibi_data, unix_start, tags::DataFrame, names::NamedTuple, offsets::NamedTuple)
+    tag₁, tag₂ = extract_tags(tags)
+    seconds_to_tag₁ = tag₁ - unix_start
+    seconds_to_tag₂ = tag₂ - unix_start
+
+    interval₁, interval₂, interval₃, interval₄ = determine_intervals(seconds_to_tag₁, seconds_to_tag₂, offsets)
+
+    N = size(ibi_data,2)
+    #@show N
+    timestamps = ibi_data[:,1]
+    interbeat_intervals = ibi_data[:,2]
+
+    indicator₁ = [interval₁.start <= i <= interval₁.stop ? 1.0 : 0.0 for i in timestamps]
+    indicator₂ = [interval₂.start <= i <= interval₂.stop ? 1.0 : 0.0 for i in timestamps]
+    indicator₃ = [interval₃.start <= i <= interval₃.stop ? 1.0 : 0.0 for i in timestamps]
+    indicator₄ = [interval₄.start <= i <= interval₄.stop ? 1.0 : 0.0 for i in timestamps]
+
+
+    df = DataFrame(Timestamp = vcat(unix_start, timestamps))
+    df = hcat(df, DataFrame(IBI = vcat("IBI", interbeat_intervals)))
+    df = hcat(df, DataFrame([vcat(unix_start, indicator₁)], [Symbol(names.name_1)]))
+    df = hcat(df, DataFrame([vcat(unix_start, indicator₂)], [Symbol(names.name_2)]))
+    df = hcat(df, DataFrame([vcat(unix_start, indicator₃)], [Symbol(names.name_3)]))
+    df = hcat(df, DataFrame([vcat(unix_start, indicator₄)], [Symbol(names.name_4)]))
 
     return df
 end

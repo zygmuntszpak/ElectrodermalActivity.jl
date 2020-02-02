@@ -1,10 +1,10 @@
 using ElectrodermalActivity
 
 # Specify the folder containing the raw Empatica data.
-# input_directory = "/home/zygmunt/Downloads/edadata/EDA LAB DATA/107/experiment"
-# output_directory = "/home/zygmunt/Downloads/edadata/EDA LAB DATA/107/experiment/processed"
-input_directory = "C:/Users/Spock/Documents/Empatica Data/"
-output_directory = "C:/Users/Spock/Documents/Empatica Data/processed"
+input_directory = "/home/zygmunt/Downloads/edadata/EDA LAB DATA/107/experiment"
+output_directory = "/home/zygmunt/Downloads/edadata/EDA LAB DATA/107/experiment/processed"
+#input_directory = "C:/Users/Spock/Documents/Empatica Data/"
+#output_directory = "C:/Users/Spock/Documents/Empatica Data/processed"
 
 
 # Create the output_directory if it doesn't already exist.
@@ -48,6 +48,3 @@ offsets = (offset_1 = seconds_prior_marker_1,
            offset_4 = seconds_after_marker_2)
 
 a = prepare_empatica(input_directory, output_directory, interval_names, offsets)
-
-a
-b
