@@ -31,6 +31,7 @@ include("utility.jl")
 
 
 export launch,
-       prepare_heartrate
+       prepare_heartrate,
+       prepare_empatica
 
 end # module
