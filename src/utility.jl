@@ -77,6 +77,7 @@ function prepare_empatica(in_directory::String, out_directory::String, names::Na
 
     hr_timestamp = hr[1,1]
     hr_frequency = hr[2,1]
+    hr_data = hr[3:end,1]
 
     ibi_timestamp = ibi[1,1]
     ibi_data = ibi[2:end,:]
@@ -90,6 +91,9 @@ function prepare_empatica(in_directory::String, out_directory::String, names::Na
 
     ibi_processed = prepare_ibi(ibi_data, ibi_timestamp, tags, names, offsets)
     CSV.write(joinpath(out_directory, "IBI_annotated.csv"), ibi_processed)
+
+    ibi_processed = prepare_heart_rate(hr_data, hr_timestamp, hr_frequency, tags, names, offsets)
+    CSV.write(joinpath(out_directory, "HR_annotated.csv"), ibi_processed)
 
     eda_processed
     #time₀, time₁, timestamps
@@ -123,8 +127,13 @@ function prepare_eda(eda, unix_start, eda_frequency, tags::DataFrame, names::Nam
     indicator₃ = [interval₃.start <= i <= interval₃.stop ? 1.0 : 0.0 for i in timestamps]
     indicator₄ = [interval₄.start <= i <= interval₄.stop ? 1.0 : 0.0 for i in timestamps]
 
+    response_type = Lowpass(1; fs = eda_frequency)
+    design_method = Butterworth(2)
+    eda_filtered = filt(digitalfilter(response_type, design_method), eda)
+
     # TODO add filtered EDA
     df = DataFrame(Raw = vcat(unix_start, eda_frequency, eda))
+    df = hcat(df, DataFrame(Filtered = vcat(unix_start, eda_frequency, eda_filtered)))
     df = hcat(df, DataFrame([vcat(unix_start, eda_frequency, indicator₁)], [Symbol(names.name_1)]))
     df = hcat(df, DataFrame([vcat(unix_start, eda_frequency, indicator₂)], [Symbol(names.name_2)]))
     df = hcat(df, DataFrame([vcat(unix_start, eda_frequency, indicator₃)], [Symbol(names.name_3)]))
@@ -157,6 +166,35 @@ function prepare_ibi(ibi_data, unix_start, tags::DataFrame, names::NamedTuple, o
     df = hcat(df, DataFrame([vcat(unix_start, indicator₂)], [Symbol(names.name_2)]))
     df = hcat(df, DataFrame([vcat(unix_start, indicator₃)], [Symbol(names.name_3)]))
     df = hcat(df, DataFrame([vcat(unix_start, indicator₄)], [Symbol(names.name_4)]))
+
+    return df
+end
+
+function prepare_heart_rate(hr_data, unix_start, hr_frequency, tags::DataFrame, names::NamedTuple, offsets::NamedTuple)
+    tag₁, tag₂ = extract_tags(tags)
+    seconds_to_tag₁ = tag₁ - unix_start
+    seconds_to_tag₂ = tag₂ - unix_start
+
+    #@show seconds_to_tag₁,  seconds_to_tag₂
+
+    interval₁, interval₂, interval₃, interval₄ = determine_intervals(seconds_to_tag₁, seconds_to_tag₂, offsets)
+
+    N = length(hr_data)
+    #@show N
+    # Timestep expressed in fractions of a second.
+    Δt = (1 / hr_frequency)
+    timestamps = range(Δt, step = Δt, length = N)
+
+    indicator₁ = [interval₁.start <= i <= interval₁.stop ? 1.0 : 0.0 for i in timestamps]
+    indicator₂ = [interval₂.start <= i <= interval₂.stop ? 1.0 : 0.0 for i in timestamps]
+    indicator₃ = [interval₃.start <= i <= interval₃.stop ? 1.0 : 0.0 for i in timestamps]
+    indicator₄ = [interval₄.start <= i <= interval₄.stop ? 1.0 : 0.0 for i in timestamps]
+
+    df = DataFrame(Raw = vcat(unix_start, hr_frequency, hr_data))
+    df = hcat(df, DataFrame([vcat(unix_start, hr_frequency, indicator₁)], [Symbol(names.name_1)]))
+    df = hcat(df, DataFrame([vcat(unix_start, hr_frequency, indicator₂)], [Symbol(names.name_2)]))
+    df = hcat(df, DataFrame([vcat(unix_start, hr_frequency, indicator₃)], [Symbol(names.name_3)]))
+    df = hcat(df, DataFrame([vcat(unix_start, hr_frequency, indicator₄)], [Symbol(names.name_4)]))
 
     return df
 end
