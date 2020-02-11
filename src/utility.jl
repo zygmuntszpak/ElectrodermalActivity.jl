@@ -102,6 +102,7 @@ function prepare_empatica(in_directory::String, out_directory::String, names::Na
     hr_summary = summarize_hr(hr_processed)
     CSV.write(joinpath(out_directory, "HR_summarized.csv"), hr_summary)
 
+
     eda_processed
     #time₀, time₁, timestamps
 end
