@@ -15,6 +15,7 @@ using TimeZones
 using LinearAlgebra
 using DSP
 using CSV # Temporarily needed for prepare_heartrate fix.
+using Statistics
 
 include("electrodermal.jl")
 include("tags.jl")
